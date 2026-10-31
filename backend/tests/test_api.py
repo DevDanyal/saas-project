@@ -5,6 +5,7 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.security import SESSION_COOKIE, create_session_token
 from app.db import crud, models
 from app.db.base import Base
 from app.db.session import get_session
@@ -51,7 +52,11 @@ async def ctx():
         db.add(models.AgentPreference(user_id=user.id, auto_features={}, tone_profile={}))
         await db.commit()
 
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={SESSION_COOKIE: create_session_token(user.id)},
+    ) as client:
         yield client, user, thread
 
     app.dependency_overrides.clear()

@@ -6,6 +6,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
+from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
 from app.services import billing
@@ -25,8 +26,10 @@ async def create_checkout(
     request: Request,
     user_id: uuid.UUID,
     body: CheckoutRequest,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     try:
         url = await billing.create_checkout_session(db, str(user_id), body.price_id, body.mode)
     except ValueError as e:
@@ -39,8 +42,10 @@ async def create_checkout(
 async def create_portal(
     request: Request,
     user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     try:
         url = await billing.create_portal_session(db, str(user_id))
     except ValueError as e:
@@ -53,8 +58,10 @@ async def create_portal(
 async def get_subscription(
     request: Request,
     user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     sub = await crud.get_active_subscription(db, user_id)
     if not sub:
         return {"plan": "free", "status": "inactive", "limits": billing.get_plan_limits(models.PlanType.free)}
@@ -71,8 +78,10 @@ async def get_subscription(
 async def get_limits(
     request: Request,
     user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     sub = await crud.get_active_subscription(db, user_id)
     plan = sub.plan if sub else models.PlanType.free
     limits = billing.get_plan_limits(plan)
@@ -100,7 +109,9 @@ async def stripe_webhook(
 
 @router.get("/prices")
 @limiter.limit("30/minute")
-async def get_prices(request: Request):
+async def get_prices(
+    request: Request, user: models.User = Depends(require_user)
+):
     return {
         "free": {"price_id": settings.stripe_price_free, "name": "Free", "monthly_price": 0},
         "pro": {"price_id": settings.stripe_price_pro, "name": "Pro", "monthly_price": 29},

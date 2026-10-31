@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
 
@@ -28,7 +29,12 @@ def _serialize(pref: models.AgentPreference | None) -> dict:
 
 
 @router.get("/{user_id}")
-async def get_preferences(user_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def get_preferences(
+    user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    ensure_self(user, user_id)
     pref = await crud.get_preferences(db, user_id)
     return _serialize(pref)
 
@@ -37,8 +43,10 @@ async def get_preferences(user_id: uuid.UUID, db: AsyncSession = Depends(get_ses
 async def update_preferences(
     user_id: uuid.UUID,
     body: PreferencesUpdate,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     pref = await crud.get_preferences(db, user_id)
     if pref is None:
         pref = models.AgentPreference(user_id=user_id, auto_features={}, tone_profile={})

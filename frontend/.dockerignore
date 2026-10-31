@@ -1,0 +1,24 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs and caches
+*.log
+npm-debug.log*
+.eslintcache
+*.tsbuildinfo
+
+# Tooling / VCS
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+README.md

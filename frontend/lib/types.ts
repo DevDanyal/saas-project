@@ -4,6 +4,7 @@ export type User = {
   email: string;
   role: string;
   created_at?: string | null;
+  gmail_connected?: boolean;
 };
 
 export type ThreadFlags = string[];

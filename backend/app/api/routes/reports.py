@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import require_user
 from app.db import crud, models
 from app.db.session import get_session
 
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 async def team_report(
     team_id: uuid.UUID,
     days: int = 30,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
     """Generate team activity report for the last N days."""
@@ -21,8 +23,12 @@ async def team_report(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
 
+    team_members = await crud.get_team_members(db, team_id)
+    if not any(m.user_id == user.id for m in team_members):
+        raise HTTPException(status_code=403, detail="You are not a member of this team")
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    member_ids = [m.user_id for m in team.members]
+    member_ids = [m.user_id for m in team_members]
 
     # Emails processed per member
     emails_result = await db.execute(

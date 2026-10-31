@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+inbox_assistant.db
+*.sqlite3
+
+# Tooling / VCS
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+tests/

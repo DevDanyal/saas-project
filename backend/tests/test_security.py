@@ -5,6 +5,7 @@ import pytest
 import uuid
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.security import SESSION_COOKIE, create_session_token
 from app.db import crud, models
 from app.db.base import Base
 from app.db.session import get_session
@@ -56,6 +57,7 @@ async def test_rate_limit_billing_endpoint(client, test_db):
     """Test rate limiting on billing endpoint."""
     user = await crud.get_or_create_user(test_db, "Agent", "agent@example.com")
     user_id = user.id
+    client.cookies.set(SESSION_COOKIE, create_session_token(user_id))
     for i in range(32):
         r = await client.get(f"/billing/subscription/{user_id}")
         if i < 30:

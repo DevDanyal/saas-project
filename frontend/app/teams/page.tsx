@@ -7,7 +7,7 @@ import type { Team, TeamMember } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
 export default function TeamsPage() {
-  const { activeId, users } = useUser();
+  const { activeId } = useUser();
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,13 +61,8 @@ export default function TeamsPage() {
   async function inviteMember() {
     if (!selectedTeam || !inviteEmail.trim()) return;
     try {
-      const user = users.find((u) => u.email === inviteEmail);
-      if (!user) {
-        setError("User not found. They must sign up first.");
-        return;
-      }
       await post(`/teams/${selectedTeam.id}/members`, {
-        user_id: user.id,
+        email: inviteEmail.trim(),
         role: inviteRole,
       });
       await selectTeam(selectedTeam);
@@ -214,21 +209,14 @@ export default function TeamsPage() {
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
             <h3>Invite Member</h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-              <select
+              <input
+                type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="agent@example.com"
                 className="role-select"
                 style={{ flex: 1, minWidth: 200 }}
-              >
-                <option value="">Select user…</option>
-                {users
-                  .filter((u) => u.id !== activeId && !selectedTeam.members?.some((m) => m.user_id === u.id))
-                  .map((u) => (
-                    <option key={u.id} value={u.email}>
-                      {u.name} ({u.email})
-                    </option>
-                  ))}
-              </select>
+              />
               <select
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as "admin" | "agent")}

@@ -10,6 +10,7 @@ from slowapi.util import get_remote_address
 
 from app.agents import digest, pipeline
 from app.core.config import settings
+from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
 from app.services import billing, gmail_sync
@@ -42,7 +43,13 @@ def _thread_summary(t: models.Thread, unread_count: int = 0) -> dict:
 
 @router.post("/sync/{user_id}")
 @limiter.limit("10/hour")
-async def sync_inbox(request: Request, user_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def sync_inbox(
+    request: Request,
+    user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    ensure_self(user, user_id)
     try:
         stats = await gmail_sync.sync_user_inbox(db, user_id)
     except ValueError as e:
@@ -53,13 +60,18 @@ async def sync_inbox(request: Request, user_id: uuid.UUID, db: AsyncSession = De
 
 @router.post("/process/{email_id}")
 @limiter.limit("60/minute")
-async def process_email(request: Request, email_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def process_email(
+    request: Request,
+    email_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
     email = await db.get(models.Email, email_id)
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
     thread = await db.get(models.Thread, email.thread_id)
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
+    if not thread or thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Email not found")
 
     can_process, usage = await billing.check_email_limit(db, str(thread.user_id))
     if not can_process:
@@ -82,8 +94,14 @@ async def process_email(request: Request, email_id: uuid.UUID, db: AsyncSession 
 
 @router.post("/process-all/{user_id}")
 @limiter.limit("5/hour")
-async def process_inbox(request: Request, user_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def process_inbox(
+    request: Request,
+    user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
     """Run the AI pipeline over every synced email that hasn't been processed."""
+    ensure_self(user, user_id)
     can_process, usage = await billing.check_email_limit(db, str(user_id))
     if not can_process:
         raise HTTPException(
@@ -121,9 +139,19 @@ async def send_draft(
     request: Request,
     draft_id: uuid.UUID,
     body: SendDraftRequest,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
     """Send an AI draft reply through Gmail and mark it sent."""
+    draft = await db.get(models.AiDraft, draft_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    draft_email = await db.get(models.Email, draft.email_id)
+    draft_thread = (
+        await db.get(models.Thread, draft_email.thread_id) if draft_email else None
+    )
+    if draft_thread is None or draft_thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Draft not found")
     try:
         result = await gmail_sync.send_draft_reply(db, draft_id, text=body.text)
     except PermissionError as e:
@@ -138,16 +166,28 @@ async def send_draft(
 
 @router.get("/inbox/{user_id}")
 @limiter.limit("60/minute")
-async def inbox(request: Request, user_id: uuid.UUID, limit: int = 100, db: AsyncSession = Depends(get_session)):
+async def inbox(
+    request: Request,
+    user_id: uuid.UUID,
+    limit: int = 100,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    ensure_self(user, user_id)
     threads = await crud.list_threads_for_user(db, user_id, limit=limit)
     return {"threads": [_thread_summary(t) for t in threads]}
 
 
 @router.get("/threads/{thread_id}")
 @limiter.limit("60/minute")
-async def thread_detail(request: Request, thread_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def thread_detail(
+    request: Request,
+    thread_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
     thread = await crud.get_thread_detail(db, thread_id)
-    if thread is None:
+    if thread is None or thread.user_id != user.id:
         raise HTTPException(status_code=404, detail="Thread not found")
     emails = await crud.list_emails_for_thread(db, thread_id)
 
@@ -208,9 +248,11 @@ async def thread_detail(request: Request, thread_id: uuid.UUID, db: AsyncSession
 async def daily_digest(
     user_id: uuid.UUID,
     hours: int = 24,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
     """Build the morning brief from threads active in the last `hours` + open actions."""
+    ensure_self(user, user_id)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     threads_res = await db.execute(
@@ -266,7 +308,12 @@ async def daily_digest(
 
 
 @router.get("/action-items/{user_id}")
-async def action_items(user_id: uuid.UUID, db: AsyncSession = Depends(get_session)):
+async def action_items(
+    user_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    ensure_self(user, user_id)
     result = await db.execute(
         select(models.ActionItem)
         .join(models.Email)

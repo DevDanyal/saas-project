@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
 
@@ -27,8 +28,10 @@ async def list_notifications(
     user_id: uuid.UUID,
     unread_only: bool = False,
     limit: int = 50,
+    user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
+    ensure_self(user, user_id)
     notes = await crud.list_notifications(
         db, user_id, unread_only=unread_only, limit=limit
     )
@@ -41,8 +44,13 @@ async def list_notifications(
 
 @router.post("/{notification_id}/read")
 async def read_notification(
-    notification_id: uuid.UUID, db: AsyncSession = Depends(get_session)
+    notification_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
 ):
+    existing = await db.get(models.Notification, notification_id)
+    if existing is None or existing.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Notification not found")
     note = await crud.mark_notification_read(db, notification_id)
     if note is None:
         raise HTTPException(status_code=404, detail="Notification not found")

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useUser } from "@/lib/user-context";
 
 export function ConnectGmail() {
-  const { users, connectGmail } = useUser();
+  const { user, connectGmail } = useUser();
   const params = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function ConnectGmail() {
       {oauthError && <div className="error-banner">Gmail connection failed: {oauthError}</div>}
       {error && <div className="error-banner">{error}</div>}
 
-      {users.length === 0 && (
+      {!user?.gmail_connected && (
         <div className="empty" style={{ marginBottom: 18 }}>
           <h2>Connect your Gmail</h2>
           <p>

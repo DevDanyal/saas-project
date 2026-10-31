@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-import { get, post } from "@/lib/api";
+import { ApiError, get, post } from "@/lib/api";
 import type {
   Notification,
   NotificationList,
@@ -12,10 +12,11 @@ import type {
 } from "@/lib/types";
 
 type UserContextValue = {
-  users: User[];
+  user: User | null;
   activeId: string | null;
-  setActiveId: (id: string) => void;
+  authChecked: boolean;
   connectGmail: () => Promise<void>;
+  logout: () => Promise<void>;
   syncInbox: () => Promise<SyncStats>;
   processAll: () => Promise<ProcessStats>;
   notifications: Notification[];
@@ -28,28 +29,31 @@ type UserContextValue = {
 
 const UserContext = createContext<UserContextValue | null>(null);
 
-const STORAGE_KEY = "smart-inbox-active-user";
-
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [activeId, setActiveIdState] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const activeId = user?.id ?? null;
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { users: list } = await get<{ users: User[] }>("/users");
-        if (cancelled) return;
-        setUsers(list);
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        const valid = stored && list.some((u) => u.id === stored) ? stored : null;
-        setActiveIdState(valid ?? (list[0]?.id ?? null));
+        const me = await get<User>("/auth/me");
+        if (!cancelled) setUser(me);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 401) {
+          setUser(null);
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        if (!cancelled) setAuthChecked(true);
       }
     })();
     return () => {
@@ -57,16 +61,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const setActiveId = useCallback((id: string) => {
-    setActiveIdState(id);
-    window.localStorage.setItem(STORAGE_KEY, id);
-  }, []);
-
   const connectGmail = useCallback(async () => {
     const { authorization_url } = await get<{ authorization_url: string }>(
       "/auth/google",
     );
-    window.location.href = authorization_url;
+    window.location.assign(authorization_url);
+  }, []);
+
+  const logout = useCallback(async () => {
+    await post("/auth/logout");
+    setUser(null);
+    setNotifications([]);
+    setUnreadCount(0);
   }, []);
 
   useEffect(() => {
@@ -103,7 +109,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   );
 
   const syncInbox = useCallback(async () => {
-    if (!activeId) throw new Error("No user selected");
+    if (!activeId) throw new Error("Not signed in");
     setBusy(true);
     setError(null);
     try {
@@ -117,7 +123,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, [activeId]);
 
   const processAll = useCallback(async () => {
-    if (!activeId) throw new Error("No user selected");
+    if (!activeId) throw new Error("Not signed in");
     setBusy(true);
     setError(null);
     try {
@@ -133,10 +139,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   return (
     <UserContext.Provider
       value={{
-        users,
+        user,
         activeId,
-        setActiveId,
+        authChecked,
         connectGmail,
+        logout,
         syncInbox,
         processAll,
         notifications,

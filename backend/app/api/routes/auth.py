@@ -1,18 +1,34 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
+from app.core.security import (
+    clear_session_cookie,
+    require_user,
+    set_session_cookie,
+)
 from app.db import crud, models
 from app.db.session import get_session
 from app.services import crypto, gmail_auth
 
 limiter = Limiter(key_func=get_remote_address)
-router = APIRouter(prefix="/auth/google", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _serialize_user(user: models.User, gmail_connected: bool = False) -> dict:
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "role": user.role.value,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "gmail_connected": gmail_connected,
+    }
 
 
 def _frontend(status: str, **params: str) -> RedirectResponse:
@@ -23,7 +39,23 @@ def _frontend(status: str, **params: str) -> RedirectResponse:
     return RedirectResponse(url)
 
 
-@router.get("")
+@router.get("/me")
+async def current_user(
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    account = await crud.get_email_account(db, user.id, models.ProviderType.gmail)
+    return _serialize_user(user, gmail_connected=account is not None)
+
+
+@router.post("/logout")
+async def logout():
+    response = JSONResponse({"ok": True})
+    clear_session_cookie(response)
+    return response
+
+
+@router.get("/google")
 @limiter.limit("10/minute")
 async def google_login(request: Request):
     """Return the Google consent URL for the frontend to redirect the user to."""
@@ -31,7 +63,7 @@ async def google_login(request: Request):
     return {"authorization_url": url, "state": state}
 
 
-@router.get("/redirect")
+@router.get("/google/redirect")
 @limiter.limit("20/minute")
 async def google_redirect(request: Request, code: str, state: str, db: AsyncSession = Depends(get_session)):
     try:
@@ -61,4 +93,6 @@ async def google_redirect(request: Request, code: str, state: str, db: AsyncSess
         account.is_active = True
     await db.commit()
 
-    return _frontend("connected", user_id=str(user.id), email=profile_email)
+    response = _frontend("connected", user_id=str(user.id), email=profile_email)
+    set_session_cookie(response, user.id)
+    return response

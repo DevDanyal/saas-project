@@ -1,25 +1,21 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import require_user
 from app.db import models
-from app.db.session import get_session
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("")
-async def list_users(db: AsyncSession = Depends(get_session)):
-    result = await db.execute(select(models.User).order_by(models.User.created_at))
+async def current_user_profile(user: models.User = Depends(require_user)):
     return {
         "users": [
             {
-                "id": str(u.id),
-                "name": u.name,
-                "email": u.email,
-                "role": u.role.value,
-                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "id": str(user.id),
+                "name": user.name,
+                "email": user.email,
+                "role": user.role.value,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
             }
-            for u in result.scalars().all()
         ]
     }
