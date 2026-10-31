@@ -1,0 +1,38 @@
+# Core backend dependencies (installed incrementally per phase)
+
+# --- Framework ---
+fastapi
+uvicorn[standard]
+
+# --- Data ---
+sqlalchemy
+asyncpg
+aiosqlite
+alembic
+pydantic
+pydantic-settings
+
+# --- Email integration (Phase 2) ---
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# --- AI (Phase 3) ---
+openai
+anthropic
+google-generativeai
+
+# --- Security ---
+cryptography
+python-jose[cryptography]
+passlib[bcrypt]
+
+# --- Billing (Phase 5) ---
+stripe
+
+# --- Security (Phase 6) ---
+slowapi
+
+# --- Utils ---
+python-dotenv
+requests
