@@ -1,6 +1,7 @@
+import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -98,6 +99,51 @@ async def upsert_thread(
         thread.pipeline_hints = pipeline_hints
     await db.flush()
     return thread
+
+
+async def list_action_items_for_email(db: AsyncSession, email_id) -> list[models.ActionItem]:
+    result = await db.execute(
+        select(models.ActionItem).where(models.ActionItem.email_id == email_id)
+    )
+    return list(result.scalars().all())
+
+
+async def get_draft_for_email(db: AsyncSession, email_id) -> models.AiDraft | None:
+    result = await db.execute(
+        select(models.AiDraft)
+        .where(models.AiDraft.email_id == email_id)
+        .order_by(models.AiDraft.created_at.desc())
+    )
+    return result.scalars().first()
+
+
+async def get_action_item(db: AsyncSession, action_id) -> models.ActionItem | None:
+    return await db.get(models.ActionItem, action_id)
+
+
+async def get_draft(db: AsyncSession, draft_id) -> models.AiDraft | None:
+    return await db.get(models.AiDraft, draft_id)
+
+
+async def notification_exists(db: AsyncSession, email_id, type_) -> bool:
+    result = await db.execute(
+        select(models.Notification.id).where(
+            models.Notification.email_id == email_id,
+            models.Notification.type == type_,
+        )
+    )
+    return result.first() is not None
+
+
+async def digest_notification_exists(db: AsyncSession, user_id, since: datetime) -> bool:
+    result = await db.execute(
+        select(models.Notification.id).where(
+            models.Notification.user_id == user_id,
+            models.Notification.type == models.NotificationType.digest,
+            models.Notification.created_at >= since,
+        )
+    )
+    return result.first() is not None
 
 
 async def insert_email(
@@ -266,7 +312,38 @@ async def mark_notification_read(db: AsyncSession, notification_id) -> models.No
     return note
 
 
+async def list_knowledge_entries(db: AsyncSession, user_id, kind: str | None = None):
+    stmt = select(models.KnowledgeEntry).where(models.KnowledgeEntry.user_id == user_id)
+    if kind:
+        stmt = stmt.where(models.KnowledgeEntry.kind == kind)
+    stmt = stmt.order_by(models.KnowledgeEntry.updated_at.desc())
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def upsert_knowledge_entry(db: AsyncSession, user_id, kind: str, key: str, value) -> models.KnowledgeEntry:
+    result = await db.execute(
+        select(models.KnowledgeEntry).where(
+            models.KnowledgeEntry.user_id == user_id,
+            models.KnowledgeEntry.kind == kind,
+            models.KnowledgeEntry.key == key,
+        )
+    )
+    entry = result.scalar_one_or_none()
+    if entry is None:
+        entry = models.KnowledgeEntry(user_id=user_id, kind=kind, key=key, value=value)
+        db.add(entry)
+    else:
+        entry.value = value
+    await db.flush()
+    return entry
+
+
 async def get_user(db: AsyncSession, user_id) -> models.User | None:
+    try:
+        user_id = uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        return None
     return await db.get(models.User, user_id)
 
 
@@ -289,6 +366,10 @@ async def upsert_subscription(
         )
     sub = result.scalar_one_or_none()
     if sub is None:
+        if not user_id:
+            # A webhook may arrive before we can map the Stripe customer to a
+            # user. Never create a subscription without an owner.
+            raise ValueError("Cannot create a subscription without a user_id")
         sub = models.Subscription(user_id=user_id)
         db.add(sub)
     sub.plan = plan
@@ -305,6 +386,7 @@ async def upsert_subscription(
 
 
 async def get_active_subscription(db: AsyncSession, user_id) -> models.Subscription | None:
+    user_id = uuid.UUID(str(user_id))
     result = await db.execute(
         select(models.Subscription)
         .where(models.Subscription.user_id == user_id)
@@ -321,6 +403,8 @@ async def count_emails_processed_this_month(
     db: AsyncSession, user_id, since: datetime
 ) -> int:
     from sqlalchemy import func
+
+    user_id = uuid.UUID(str(user_id))
     result = await db.execute(
         select(func.count(models.Email.id))
         .join(models.Thread)
@@ -414,3 +498,99 @@ async def deactivate_email_account(db: AsyncSession, email: str) -> bool:
         await db.flush()
         return True
     return False
+
+
+async def purge_old_emails(db: AsyncSession, older_than: datetime) -> int:
+    """Delete emails received before *older_than* plus their dependent rows.
+
+    Removes action items, drafts, and notifications tied to those emails, then
+    deletes threads left with no emails. Returns the number of deleted emails.
+    """
+    old_email_ids = select(models.Email.id).where(
+        models.Email.received_at < older_than
+    )
+    await db.execute(
+        delete(models.ActionItem).where(models.ActionItem.email_id.in_(old_email_ids))
+    )
+    await db.execute(
+        delete(models.AiDraft).where(models.AiDraft.email_id.in_(old_email_ids))
+    )
+    await db.execute(
+        delete(models.Notification).where(
+            models.Notification.email_id.in_(old_email_ids)
+        )
+    )
+    result = await db.execute(
+        delete(models.Email).where(models.Email.received_at < older_than)
+    )
+    deleted = result.rowcount or 0
+
+    empty_threads = select(models.Thread.id).where(
+        ~models.Thread.id.in_(select(models.Email.thread_id))
+    )
+    await db.execute(
+        delete(models.Notification).where(
+            models.Notification.thread_id.in_(empty_threads)
+        )
+    )
+    await db.execute(
+        delete(models.Thread).where(
+            ~models.Thread.id.in_(select(models.Email.thread_id))
+        )
+    )
+    await db.commit()
+    return deleted
+
+
+async def list_active_gmail_user_ids(db: AsyncSession) -> list:
+    result = await db.execute(
+        select(models.EmailAccount.user_id)
+        .where(
+            models.EmailAccount.provider == models.ProviderType.gmail,
+            models.EmailAccount.is_active.is_(True),
+        )
+        .distinct()
+    )
+    return list(result.scalars().all())
+
+
+async def list_unprocessed_email_ids(
+    db: AsyncSession, user_id, limit: int = 25
+) -> list:
+    result = await db.execute(
+        select(models.Email.id)
+        .join(models.Thread)
+        .where(
+            models.Thread.user_id == user_id,
+            models.Email.ai_summary.is_(None),
+        )
+        .order_by(models.Email.received_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_daily_digest(db: AsyncSession, user_id, digest_date):
+    result = await db.execute(
+        select(models.DailyDigest).where(
+            models.DailyDigest.user_id == user_id,
+            models.DailyDigest.digest_date == digest_date,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_daily_digest(
+    db: AsyncSession, user_id, digest_date, payload: dict
+) -> models.DailyDigest:
+    digest = await get_daily_digest(db, user_id, digest_date)
+    if digest is None:
+        digest = models.DailyDigest(
+            user_id=user_id, digest_date=digest_date, payload=payload
+        )
+        db.add(digest)
+    else:
+        digest.payload = payload
+        digest.generated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return digest

@@ -125,13 +125,36 @@ def _call_gemini(system: str, user: str, temperature: float, max_tokens: int) ->
                 "temperature": temperature,
                 "maxOutputTokens": max_tokens,
                 "responseMimeType": "application/json",
+                # Gemini 2.5 Flash spends output tokens on internal "thinking"
+                # by default, which can exhaust the budget before emitting any
+                # text. Disable it so small JSON calls stay cheap and reliable.
+                "thinkingConfig": {"thinkingBudget": 0},
             },
         },
         timeout=120,
     )
     resp.raise_for_status()
-    text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-    return _extract_json(text)
+    candidates = resp.json().get("candidates") or []
+    if not candidates:
+        raise ValueError(f"Gemini returned no candidates: {resp.text[:300]!r}")
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    if not parts:
+        reason = candidates[0].get("finishReason")
+        raise ValueError(f"Gemini returned no text (finishReason={reason})")
+    return _extract_json(parts[0].get("text", ""))
+
+
+def available_providers() -> list[str]:
+    # Prefer providers that are typically free/cheap and reliable; OpenAI is
+    # last because its free tier is heavily rate-limited.
+    providers: list[str] = []
+    if settings.gemini_api_key:
+        providers.append("gemini")
+    if settings.anthropic_api_key:
+        providers.append("anthropic")
+    if settings.openai_api_key:
+        providers.append("openai")
+    return providers
 
 
 def generate_json(
@@ -140,9 +163,13 @@ def generate_json(
     temperature: float = 0.2,
     max_tokens: int = 2048,
 ) -> dict:
-    """One structured-JSON chat call through the configured provider."""
-    provider = detect_provider()
-    if provider is None:
+    """One structured-JSON chat call through the configured provider.
+
+    Falls back to other configured providers when one is rate-limited or
+    unavailable, so a single bad key does not break inbox processing.
+    """
+    providers = available_providers()
+    if not providers:
         raise RuntimeError(
             "No LLM API key configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY."
         )
@@ -151,7 +178,15 @@ def generate_json(
         "anthropic": _call_anthropic,
         "gemini": _call_gemini,
     }
-    return callers[provider](system, user, temperature, max_tokens)
+    last_exc: Exception | None = None
+    for provider in providers:
+        try:
+            return callers[provider](system, user, temperature, max_tokens)
+        except Exception as exc:  # noqa: BLE001 - try next provider
+            last_exc = exc
+            continue
+    assert last_exc is not None
+    raise last_exc
 
 
 class FakeLlm:

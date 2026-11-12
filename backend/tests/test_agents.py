@@ -172,6 +172,58 @@ async def test_pipeline_persists_all_outputs(db):
 
 
 @pytest.mark.asyncio
+async def test_pipeline_reprocessing_is_idempotent(db):
+    user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-idem", "Looking near the lake")
+    email = await crud.insert_email(
+        db, thread.id, "msg-idem", EMAIL["from_addr"], EMAIL["to_addr"],
+        EMAIL["subject"], EMAIL["body"], datetime.now(timezone.utc),
+    )
+
+    first = await pipeline.process_email(db, email.id, llm=build_fake())
+    second = await pipeline.process_email(db, email.id, llm=build_fake())
+
+    assert first["drafts_created"] == 1
+    assert first["actions_created"] == 1
+    assert second["drafts_created"] == 0
+    assert second["actions_created"] == 0
+
+    drafts = (await db.execute(
+        select(models.AiDraft).where(models.AiDraft.email_id == email.id)
+    )).scalars().all()
+    items = (await db.execute(
+        select(models.ActionItem).where(models.ActionItem.email_id == email.id)
+    )).scalars().all()
+    notes = (await db.execute(
+        select(models.Notification).where(models.Notification.email_id == email.id)
+    )).scalars().all()
+    assert len(drafts) == 1
+    assert len(items) == 1
+    assert len(notes) == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_drops_unknown_flags(db):
+    user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-flags", "Flags")
+    email = await crud.insert_email(
+        db, thread.id, "msg-flags", EMAIL["from_addr"], EMAIL["to_addr"],
+        EMAIL["subject"], EMAIL["body"], datetime.now(timezone.utc),
+    )
+    fake = build_fake()
+    fake._by_keyword["Scoring order"] = {
+        "score": 50,
+        "urgency": "low",
+        "flags": ["hot_lead", "totally_made_up"],
+    }
+
+    await pipeline.process_email(db, email.id, llm=fake)
+
+    await db.refresh(thread)
+    assert thread.flags == ["hot_lead"]
+
+
+@pytest.mark.asyncio
 async def test_pipeline_skips_drafts_for_spam(db):
     user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
     thread = await crud.upsert_thread(db, user.id, "ext-thread-2", "Winner!")

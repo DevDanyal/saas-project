@@ -12,9 +12,10 @@ from app.core.config import settings
 from app.db import crud, models
 
 
+_secret_material = settings.encryption_key or settings.session_secret
 UNSUBSCRIBE_SECRET = (
-    settings.encryption_key[:32].encode()
-    if settings.encryption_key
+    _secret_material[:32].encode()
+    if _secret_material
     else secrets.token_bytes(32)
 )
 
@@ -47,9 +48,9 @@ def verify_unsubscribe_token(token: str, email: str, user_id: str, max_age_days:
 
 
 def build_unsubscribe_url(email: str, user_id: str) -> str:
-    """Build the unsubscribe URL for email footers."""
+    """Build the unsubscribe URL for email footers (served by the backend)."""
     token = generate_unsubscribe_token(email, user_id)
-    return f"{settings.frontend_url}/unsubscribe?email={quote(email)}&user_id={user_id}&token={token}"
+    return f"{settings.backend_url}/unsubscribe?email={quote(email)}&user_id={user_id}&token={token}"
 
 
 async def handle_unsubscribe(db: AsyncSession, email: str, user_id: str, token: str) -> dict:
@@ -74,8 +75,9 @@ async def handle_unsubscribe(db: AsyncSession, email: str, user_id: str, token: 
 def add_unsubscribe_headers(email_addr: str, user_id: str) -> dict:
     """Generate List-Unsubscribe headers for outgoing emails."""
     unsubscribe_url = build_unsubscribe_url(email_addr, user_id)
+    mailto_host = settings.backend_url.replace("https://", "").replace("http://", "")
     return {
-        "List-Unsubscribe": f"<{unsubscribe_url}>, <mailto:unsubscribe@{settings.frontend_url.replace('https://', '').replace('http://', '')}?subject=unsubscribe&body={quote(email_addr)}>",
+        "List-Unsubscribe": f"<{unsubscribe_url}>, <mailto:unsubscribe@{mailto_host}?subject=unsubscribe&body={quote(email_addr)}>",
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     }
 

@@ -72,6 +72,58 @@ async def test_thread_email_draft_action_flow(db):
 
 
 @pytest.mark.asyncio
+async def test_purge_old_emails_cascades_and_keeps_live_thread(db):
+    from sqlalchemy import select
+
+    user = await crud.get_or_create_user(db, "Test Agent", "agent@example.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-purge", "Thread")
+    old = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    new = datetime.now(timezone.utc)
+
+    old_email = await crud.insert_email(
+        db, thread.id, "msg-old", "a@example.com", "agent@example.com",
+        "Old", "old body", old,
+    )
+    new_email = await crud.insert_email(
+        db, thread.id, "msg-new", "b@example.com", "agent@example.com",
+        "New", "new body", new,
+    )
+    await crud.add_draft(db, old_email.id, "old draft")
+    await crud.add_action_item(db, old_email.id, models.ActionType.call, "old call")
+    await crud.add_notification(
+        db, user.id, models.NotificationType.hot_lead, "old note", email_id=old_email.id
+    )
+    await db.commit()
+
+    deleted = await crud.purge_old_emails(db, datetime(2025, 6, 1, tzinfo=timezone.utc))
+    assert deleted == 1
+
+    remaining_emails = (await db.execute(select(models.Email))).scalars().all()
+    assert [e.id for e in remaining_emails] == [new_email.id]
+    assert (await db.execute(select(models.AiDraft))).scalars().all() == []
+    assert (await db.execute(select(models.ActionItem))).scalars().all() == []
+    assert (await db.execute(select(models.Notification))).scalars().all() == []
+    assert await crud.get_thread_detail(db, thread.id) is not None
+
+    await crud.purge_old_emails(db, datetime(2999, 1, 1, tzinfo=timezone.utc))
+    assert (await db.execute(select(models.Email))).scalars().all() == []
+    assert await crud.get_thread_detail(db, thread.id) is None
+
+
+@pytest.mark.asyncio
+async def test_upsert_subscription_requires_owner(db):
+    with pytest.raises(ValueError):
+        await crud.upsert_subscription(
+            db,
+            None,
+            plan=models.PlanType.pro,
+            stripe_customer_id="cus_unknown",
+            stripe_subscription_id="sub_unknown",
+            status=models.SubscriptionStatus.active,
+        )
+
+
+@pytest.mark.asyncio
 async def test_preferences_default_and_upsert(db):
     user = await crud.get_or_create_user(db, "Test Agent", "agent@example.com")
     pref = await crud.upsert_preferences(

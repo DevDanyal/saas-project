@@ -3,6 +3,7 @@
 # --- Framework ---
 fastapi
 uvicorn[standard]
+python-multipart
 
 # --- Data ---
 sqlalchemy
@@ -36,3 +37,9 @@ slowapi
 # --- Utils ---
 python-dotenv
 requests
+dnspython
+
+# --- Testing ---
+pytest
+pytest-asyncio
+httpx

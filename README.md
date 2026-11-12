@@ -75,7 +75,7 @@ docs/       Build notes and planning docs
    ```bash
    cd backend
    pip install -r requirements.txt
-   python -m alembic upgrade head
+   python init_db.py
    uvicorn app.main:app --reload
    ```
 
@@ -112,6 +112,13 @@ See `.env.example` for all required variables.
 | `FRONTEND_URL` | Frontend URL for CORS | Yes |
 | `STRIPE_SECRET_KEY` | Stripe secret key | For billing |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook secret | For billing |
+| `SESSION_SECRET` | Session signing secret | Yes |
+| `BACKEND_URL` | Backend origin for unsubscribe links | Yes |
+| `BOUNCE_WEBHOOK_SECRET` | Shared secret for bounce webhooks | Optional |
+| `HUBSPOT_API_KEY` | HubSpot CRM API key | Optional |
+| `LEAD_INTEL_API_URL` / `LEAD_INTEL_API_KEY` | Lead-intel provider | Optional |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | Outlook/Graph | Optional |
+| `PUBLIC_API_KEYS` | Comma-separated public API keys | Optional |
 
 ## API Documentation
 
@@ -177,15 +184,8 @@ docker-compose -f docker-compose.yml up -d
 
 ### Kubernetes
 
-1. Build and push images:
-   ```bash
-   docker build -t your-registry/inbox-backend ./backend
-   docker build -t your-registry/inbox-frontend ./frontend
-   docker push your-registry/inbox-backend
-   docker push your-registry/inbox-frontend
-   ```
-
-2. Apply manifests (create `k8s/` directory with Deployments, Services, Ingress)
+Not yet provided. Deploy via Docker Compose or your own orchestrator; the
+backend/frontend Dockerfiles are production-ready.
 
 ### Health Checks
 

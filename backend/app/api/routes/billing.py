@@ -1,5 +1,6 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Request, Header, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
@@ -112,8 +113,30 @@ async def stripe_webhook(
 async def get_prices(
     request: Request, user: models.User = Depends(require_user)
 ):
-    return {
-        "free": {"price_id": settings.stripe_price_free, "name": "Free", "monthly_price": 0},
-        "pro": {"price_id": settings.stripe_price_pro, "name": "Pro", "monthly_price": 29},
-        "team": {"price_id": settings.stripe_price_team, "name": "Team", "monthly_price": 39},
-    }
+    prices = [
+        {"price_id": settings.stripe_price_free, "name": "free", "monthly_price": 0},
+        {"price_id": settings.stripe_price_pro, "name": "pro", "monthly_price": 29},
+        {"price_id": settings.stripe_price_team, "name": "team", "monthly_price": 39},
+    ]
+    return {"prices": prices}
+
+
+@router.post("/admin/purge-emails")
+@limiter.limit("5/minute")
+async def admin_purge_emails(
+    request: Request,
+    older_than: str = Query(..., description="ISO 8601 datetime cutoff"),
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Delete every email received before *older_than*. Admin only."""
+    if user.role != models.RoleType.admin:
+        raise HTTPException(status_code=403, detail="Admin role required")
+    try:
+        older = datetime.fromisoformat(older_than)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="older_than must be an ISO 8601 datetime"
+        )
+    deleted = await crud.purge_old_emails(db, older)
+    return {"deleted_emails": deleted, "older_than": older_than}

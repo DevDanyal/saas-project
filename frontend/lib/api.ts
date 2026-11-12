@@ -10,6 +10,21 @@ export class ApiError extends Error {
   }
 }
 
+function describeDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.length > 0) return detail;
+  if (detail && typeof detail === "object") {
+    const obj = detail as Record<string, unknown>;
+    if (typeof obj.error === "string") return obj.error;
+    if (typeof obj.message === "string") return obj.message;
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -25,7 +40,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     } catch {
       detail = res.statusText;
     }
-    throw new ApiError(String(detail), res.status);
+    throw new ApiError(describeDetail(detail, res.statusText), res.status);
   }
   return res.json() as Promise<T>;
 }

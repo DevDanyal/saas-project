@@ -22,6 +22,17 @@ def _clamp_score(value) -> int | None:
         return None
 
 
+def _fallback_summary(text: str) -> str:
+    """Deterministic one-liner so every processed email has a scannable summary."""
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return ""
+    sentence = cleaned.split(". ")[0].strip()
+    if len(sentence) > 160:
+        sentence = sentence[:157].rstrip() + "…"
+    return sentence if sentence.endswith((".", "!", "?")) else sentence + "."
+
+
 def _clean_actions(raw: list | None) -> list[dict]:
     allowed = set(action_extractor.ACTION_TYPES)
     cleaned = []
@@ -70,6 +81,9 @@ async def process_email(db, email_id, llm=None) -> dict:
     clean = dict(email_dict)
     if read.get("body_clean"):
         clean["body"] = read["body_clean"]
+    summary_value = (read.get("summary") or "").strip() or _fallback_summary(
+        clean.get("body", "")
+    )
 
     cat = categorizer.classify_email(clean, llm=llm)
     category_name = (
@@ -95,16 +109,18 @@ async def process_email(db, email_id, llm=None) -> dict:
     if not is_noise:
         actions_raw = action_extractor.extract_actions(clean, category_name or "unknown", llm=llm)
 
+    allowed_flags = set(prioritizer.FLAGS)
+    clean_flags = [f for f in (prio.get("flags") or []) if f in allowed_flags]
     thread.category = (
         models.CategoryType(category_name) if category_name else thread.category
     )
     thread.priority_score = _clamp_score(prio.get("score"))
-    thread.flags = prio.get("flags") or []
-    thread.pipeline_hints = lead_hints.derive_hints(category_name, thread.flags)
-    if read.get("summary"):
-        thread.summary = read["summary"]
+    thread.flags = clean_flags
+    thread.pipeline_hints = lead_hints.derive_hints(category_name, clean_flags)
+    if summary_value:
+        thread.summary = summary_value
 
-    email.ai_summary = read.get("summary") or email.ai_summary
+    email.ai_summary = summary_value or email.ai_summary
     email.sentiment = sentiment_value
 
     prefs = await crud.get_preferences(db, thread.user_id)
@@ -128,30 +144,52 @@ async def process_email(db, email_id, llm=None) -> dict:
             thread_dicts, tone_profile=tone_profile, rules=rules, llm=llm
         )
         if reply.get("reply_text"):
-            auto_decision = auto_pilot.decide(
-                email=clean,
-                category=category_name,
-                sentiment=sentiment_value,
-                priority_score=thread.priority_score,
-                draft_text=reply["reply_text"],
-                preferences=auto_features,
-                llm=llm,
-            )
-            draft = await crud.add_draft(
-                db,
-                email.id,
-                reply["reply_text"],
-                tone=reply.get("suggested_tone", ""),
-                auto_decision=auto_decision,
-            )
-            drafts.append(draft.id)
-            if auto_decision and auto_decision.get("send"):
-                await _maybe_autosend(db, draft, auto_decision)
+            existing_draft = await crud.get_draft_for_email(db, email.id)
+            is_new = existing_draft is None
+            needs_decision = is_new or existing_draft.status == models.DraftStatus.draft
+            if needs_decision:
+                auto_decision = auto_pilot.decide(
+                    email=clean,
+                    category=category_name,
+                    sentiment=sentiment_value,
+                    priority_score=thread.priority_score,
+                    draft_text=reply["reply_text"],
+                    preferences=auto_features,
+                    llm=llm,
+                )
+
+            if is_new:
+                draft = await crud.add_draft(
+                    db,
+                    email.id,
+                    reply["reply_text"],
+                    tone=reply.get("suggested_tone", ""),
+                    auto_decision=auto_decision,
+                )
+                drafts.append(draft.id)
+                if auto_decision and auto_decision.get("send"):
+                    await _maybe_autosend(db, draft, auto_decision)
+            else:
+                # Re-processing must not create duplicates. Refresh an
+                # unsent draft in place and leave sent drafts untouched.
+                if existing_draft.status == models.DraftStatus.draft:
+                    existing_draft.text = reply["reply_text"]
+                    existing_draft.tone = reply.get("suggested_tone", "")
+                    existing_draft.auto_decision = auto_decision
+                    await db.flush()
     else:
         reply = {}
 
+    existing_actions = await crud.list_action_items_for_email(db, email.id)
+    seen_actions = {
+        (a.type.value, (a.description or "").strip()) for a in existing_actions
+    }
     actions = []
     for a in _clean_actions((actions_raw or {}).get("actions")):
+        key = (a["type"], a["description"].strip())
+        if key in seen_actions:
+            continue
+        seen_actions.add(key)
         item = await crud.add_action_item(
             db,
             email.id,
@@ -220,6 +258,9 @@ async def _maybe_notify(db, thread, email, sentiment_value: dict) -> None:
         note_type = models.NotificationType.urgent
 
     if note_type is None:
+        return
+
+    if await crud.notification_exists(db, email.id, note_type):
         return
 
     await crud.add_notification(

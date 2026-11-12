@@ -65,9 +65,20 @@ async def sync_user_inbox(
     if account is None:
         raise ValueError("No Gmail account connected")
 
+    creds = None
     if service is None:
         creds = _credentials_from_account(account)
         service = gmail_auth.build_gmail_service(creds)
+
+    if creds is not None:
+        profile_email = gmail_auth.get_profile_email(creds)
+        if profile_email:
+            account.email = profile_email
+            account.is_active = True
+            user = await crud.get_user(db, user_id)
+            if user is not None and (not user.email or user.email == "unknown@example.com"):
+                user.email = profile_email
+            await db.flush()
 
     thread_result = service.users().threads().list(
         userId="me", maxResults=max_results

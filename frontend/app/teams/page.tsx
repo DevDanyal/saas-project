@@ -242,10 +242,11 @@ export default function TeamsPage() {
         }
         .team-card {
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: 10px;
           padding: 16px;
+          background: var(--card);
           cursor: pointer;
-          transition: border-color 0.2s, background 0.2s;
+          transition: border-color 0.16s ease, background 0.16s ease;
         }
         .team-card:hover {
           border-color: var(--primary);
@@ -275,21 +276,24 @@ export default function TeamsPage() {
           gap: 12px;
           padding: 12px;
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: 10px;
         }
         .member-name {
           font-weight: 500;
         }
         .member-email {
-          font-size: 13px;
+          font-family: var(--font-mono), Consolas, monospace;
+          font-size: 12px;
           color: var(--muted);
         }
         .role-select {
-          padding: 6px 10px;
-          border: 1px solid var(--border);
-          border-radius: 6px;
+          padding: 7px 10px;
+          border: 1px solid var(--border-strong);
+          border-radius: 9px;
           background: var(--bg);
           color: var(--fg);
+          font: inherit;
+          font-size: 13px;
         }
       `}</style>
     </div>

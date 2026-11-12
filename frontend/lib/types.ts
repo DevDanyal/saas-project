@@ -9,6 +9,8 @@ export type User = {
 
 export type ThreadFlags = string[];
 
+export type ReplyStatus = "replied" | "draft_ready" | "needs_reply" | "none";
+
 export type ThreadSummary = {
   id: string;
   subject: string;
@@ -18,7 +20,22 @@ export type ThreadSummary = {
   pipeline_hints: string[];
   summary: string | null;
   last_activity_at: string | null;
+  last_from: string | null;
+  reply_status: ReplyStatus;
   emails: number;
+  email_count: number;
+};
+
+export type InboxStats = {
+  total: number;
+  processed: number;
+  unprocessed: number;
+  customers: number;
+  leads: number;
+  attention: number;
+  pending_drafts: number;
+  categories: Record<string, number>;
+  reply_status: Record<string, number>;
 };
 
 export type EmailSentiment = {
@@ -48,7 +65,7 @@ export type Draft = {
   id: string;
   text: string;
   tone: string;
-  status?: string;
+  status: string;
   auto_decision?: AutoDecision | null;
   sent_at?: string | null;
 };
@@ -67,7 +84,7 @@ export type ThreadEmail = {
   actions: ActionItem[];
 };
 
-export type ThreadDetail = ThreadSummary & {
+export type ThreadDetail = Omit<ThreadSummary, "emails"> & {
   emails: ThreadEmail[];
 };
 

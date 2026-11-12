@@ -14,6 +14,7 @@ def read_email(email: dict, llm=None) -> dict:
     user = (
         "Normalize this raw email for downstream agents.\n"
         "- body_clean: same content with quotes, signatures, and forwarded noise removed.\n"
+        "- summary: ONE short sentence (max 18 words) the agent can scan: who wrote, what they want, and any deadline.\n"
         "- reply_depth: 0 if original, 1 if it replies once, 2+ for deeper threads.\n"
         "- Keep has_attachment and all header fields as-is.\n\n"
         "RAW EMAIL:\n"
@@ -25,6 +26,6 @@ def read_email(email: dict, llm=None) -> dict:
         f"has_attachment: {email.get('has_attachment', False)}\n"
         f"body:\n{email.get('body', '')[:6000]}\n"
         "\nReturn JSON: {\"from\":\"\",\"to\":\"\",\"subject\":\"\",\"received_at\":\"\","
-        "\"body_clean\":\"\",\"thread_id\":\"\",\"has_attachment\":false,\"reply_depth\":0}"
+        "\"body_clean\":\"\",\"summary\":\"\",\"thread_id\":\"\",\"has_attachment\":false,\"reply_depth\":0}"
     )
     return llm(base_system("You are the Reader agent."), user)

@@ -4,7 +4,8 @@ Base URL: `http://localhost:8000` (development) / `https://api.yourdomain.com` (
 
 ## Authentication
 
-Currently uses user ID in path parameters. Future: JWT Bearer tokens.
+Authentication is session-cookie based (Google OAuth). User ID in path must
+match the authenticated user. Public API uses `X-API-Key`.
 
 ## Rate Limits
 
@@ -608,6 +609,49 @@ export const api = {
     body: JSON.stringify({ price_id: priceId }),
   }),
 };
+```
+
+---
+
+### Inbox Search & Filters
+
+```
+GET /emails/inbox/{user_id}?q=&category=&flag=&min_priority=&sort=&order=&limit=
+```
+
+### Drafts & Action Items Lifecycle
+
+```
+PATCH  /emails/drafts/{draft_id}          { "text", "tone" }
+POST   /emails/drafts/{draft_id}/reject
+PATCH  /emails/action-items/{action_id}   { "status": "open|done|cancelled" }
+GET    /emails/action-items/{user_id}?status=open|done|cancelled|all
+```
+
+### Integrations (Calendar / Knowledge / Lead-Intel)
+
+```
+POST   /integrations/calendar/events
+POST   /integrations/calendar/propose-slot
+GET    /integrations/calendar/availability
+POST   /integrations/action-items/{action_id}/calendar
+
+GET    /integrations/knowledge/{user_id}/preferences
+GET    /integrations/knowledge/{user_id}/tone
+GET    /integrations/knowledge/{user_id}/templates
+POST   /integrations/knowledge/{user_id}/templates
+POST   /integrations/knowledge/{user_id}/decisions
+
+GET    /integrations/lead-intel/listing?address=
+GET    /integrations/lead-intel/price-history?address=
+GET    /integrations/lead-intel/market-alert?zip=
+```
+
+### Public API (API key via X-API-Key)
+
+```
+GET /public/v1/health
+GET /public/v1/users/{user_id}/inbox-summary
 ```
 
 ---

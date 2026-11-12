@@ -1,15 +1,34 @@
+import hmac
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db import crud, models
 from app.db.session import get_session
 from app.services import email_deliverability
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/unsubscribe", tags=["unsubscribe"])
 
 
+def _require_webhook_secret(request: Request) -> None:
+    secret = settings.bounce_webhook_secret
+    if not secret:
+        return
+    provided = request.headers.get("x-webhook-secret", "")
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        provided = auth[7:].strip()
+    if not hmac.compare_digest(provided, secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+
 @router.get("", response_class=HTMLResponse)
+@limiter.limit("30/minute")
 async def unsubscribe_page(
     request: Request,
     email: str,
@@ -67,6 +86,7 @@ async def unsubscribe_page(
 
 
 @router.post("", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 async def unsubscribe_confirm(
     request: Request,
     email: str = Form(...),
@@ -108,11 +128,13 @@ async def unsubscribe_confirm(
 
 
 @router.post("/bounce")
+@limiter.limit("60/minute")
 async def handle_bounce(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ):
     """Handle bounce webhook from email provider (e.g., SendGrid, AWS SES)."""
+    _require_webhook_secret(request)
     try:
         bounce_data = await request.json()
     except Exception:

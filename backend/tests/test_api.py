@@ -160,7 +160,7 @@ async def test_digest_endpoint(monkeypatch, ctx):
             "sections": {"hot_leads": ["Lakefront buyer"], "closings": [], "follow_ups": [], "other": []},
         }
 
-    monkeypatch.setattr("app.api.routes.emails.digest.build_digest", fake_build)
+    monkeypatch.setattr("app.services.digest_service.digest.build_digest", fake_build)
     r = await client.get(f"/emails/digest/{user.id}")
     assert r.status_code == 200
     body = r.json()

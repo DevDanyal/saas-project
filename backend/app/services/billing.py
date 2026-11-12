@@ -1,10 +1,16 @@
+import logging
+import uuid
+
 import stripe
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db import crud, models
 
 stripe.api_key = settings.stripe_secret_key
+
+logger = logging.getLogger(__name__)
 
 
 PLAN_LIMITS = {
@@ -77,9 +83,43 @@ async def handle_webhook(payload: bytes, sig_header: str, db: AsyncSession) -> d
     return {"received": True}
 
 
+def _as_uuid(value) -> uuid.UUID | None:
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+async def _resolve_user_id(
+    db: AsyncSession, customer_id: str | None, metadata: dict | None = None
+) -> uuid.UUID | None:
+    """Map a Stripe customer back to our user.
+
+    Prefers an existing subscription lookup, then webhook metadata.
+    """
+    if customer_id:
+        result = await db.execute(
+            select(models.Subscription).where(
+                models.Subscription.stripe_customer_id == customer_id
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing and existing.user_id:
+            return existing.user_id
+    if metadata:
+        uid = _as_uuid(metadata.get("user_id"))
+        if uid:
+            return uid
+    return None
+
+
 async def _handle_checkout_completed(db: AsyncSession, session: dict) -> None:
-    user_id = session.get("metadata", {}).get("user_id")
+    metadata = session.get("metadata", {}) or {}
+    user_id = await _resolve_user_id(db, session.get("customer"), metadata)
     if not user_id:
+        logger.warning("checkout.session.completed without resolvable user")
         return
 
     customer_id = session.get("customer")
@@ -102,17 +142,25 @@ async def _handle_checkout_completed(db: AsyncSession, session: dict) -> None:
     )
 
 
-async def _handle_subscription_updated(db: AsyncSession, subscription: dict) -> None:
-    customer_id = subscription.get("customer")
-    subscription_id = subscription.get("id")
-    price_id = subscription["items"]["data"][0]["price"]["id"]
-    plan = _price_to_plan(price_id)
-    status = _stripe_status_to_our(subscription.get("status"))
-    current_period_end = subscription.get("current_period_end")
-
+async def _apply_subscription_update(
+    db: AsyncSession,
+    *,
+    customer_id: str | None,
+    subscription_id: str | None,
+    plan: models.PlanType,
+    status: models.SubscriptionStatus,
+    current_period_end: int | None,
+    metadata: dict | None = None,
+) -> None:
+    user_id = await _resolve_user_id(db, customer_id, metadata)
+    if not user_id:
+        logger.warning(
+            "Ignoring subscription webhook for unknown customer %s", customer_id
+        )
+        return
     await crud.upsert_subscription(
         db,
-        None,
+        user_id,
         plan=plan,
         stripe_customer_id=customer_id,
         stripe_subscription_id=subscription_id,
@@ -121,27 +169,36 @@ async def _handle_subscription_updated(db: AsyncSession, subscription: dict) -> 
     )
 
 
-async def _handle_subscription_deleted(db: AsyncSession, subscription: dict) -> None:
-    customer_id = subscription.get("customer")
-    await crud.upsert_subscription(
+async def _handle_subscription_updated(db: AsyncSession, subscription: dict) -> None:
+    await _apply_subscription_update(
         db,
-        None,
+        customer_id=subscription.get("customer"),
+        subscription_id=subscription.get("id"),
+        plan=_price_to_plan(subscription["items"]["data"][0]["price"]["id"]),
+        status=_stripe_status_to_our(subscription.get("status")),
+        current_period_end=subscription.get("current_period_end"),
+        metadata=subscription.get("metadata"),
+    )
+
+
+async def _handle_subscription_deleted(db: AsyncSession, subscription: dict) -> None:
+    await _apply_subscription_update(
+        db,
+        customer_id=subscription.get("customer"),
+        subscription_id=subscription.get("id"),
         plan=models.PlanType.free,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=subscription.get("id"),
         status=models.SubscriptionStatus.canceled,
         current_period_end=None,
+        metadata=subscription.get("metadata"),
     )
 
 
 async def _handle_payment_failed(db: AsyncSession, invoice: dict) -> None:
-    customer_id = invoice.get("customer")
-    await crud.upsert_subscription(
+    await _apply_subscription_update(
         db,
-        None,
+        customer_id=invoice.get("customer"),
+        subscription_id=invoice.get("subscription"),
         plan=models.PlanType.free,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=invoice.get("subscription"),
         status=models.SubscriptionStatus.past_due,
         current_period_end=None,
     )

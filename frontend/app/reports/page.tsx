@@ -188,21 +188,27 @@ export default function ReportsPage() {
         }
         .report-card {
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: 10px;
           padding: 20px;
           background: var(--card);
+          box-shadow: 0 1px 2px rgba(38, 43, 32, 0.04);
         }
         .report-card h3 {
           margin: 0 0 12px;
-          font-size: 14px;
+          font-family: var(--font-body), system-ui, sans-serif;
+          font-size: 11px;
+          font-weight: 600;
           color: var(--muted);
           text-transform: uppercase;
-          letter-spacing: 0.5px;
+          letter-spacing: 0.09em;
         }
         .metric {
-          font-size: 36px;
-          font-weight: 700;
+          font-family: var(--font-mono), Consolas, monospace;
+          font-variant-numeric: tabular-nums;
+          font-size: 34px;
+          font-weight: 600;
           line-height: 1;
+          color: var(--fg);
         }
         .sub-metrics {
           display: flex;
@@ -213,10 +219,13 @@ export default function ReportsPage() {
         .sub-metric {
           display: flex;
           justify-content: space-between;
-          font-size: 13px;
+          font-size: 12.5px;
         }
         .sub-metric span:first-child {
           color: var(--muted);
+        }
+        .sub-metric span:last-child {
+          font-family: var(--font-mono), Consolas, monospace;
         }
       `}</style>
     </div>

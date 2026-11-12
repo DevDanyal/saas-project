@@ -8,10 +8,12 @@ import type { ProcessStats, SyncStats } from "@/lib/types";
 export function SyncBar() {
   const { activeId, syncInbox, processAll, busy, error } = useUser();
   const [notice, setNotice] = useState<string | null>(null);
+  const [running, setRunning] = useState<"sync" | "process" | null>(null);
 
   async function onSync() {
     if (!activeId) return;
     setNotice(null);
+    setRunning("sync");
     try {
       const stats: SyncStats = await syncInbox();
       setNotice(
@@ -19,12 +21,15 @@ export function SyncBar() {
       );
     } catch {
       /* error surfaced in banner */
+    } finally {
+      setRunning(null);
     }
   }
 
   async function onProcess() {
     if (!activeId) return;
     setNotice(null);
+    setRunning("process");
     try {
       const stats: ProcessStats = await processAll();
       setNotice(
@@ -34,29 +39,25 @@ export function SyncBar() {
       );
     } catch {
       /* error surfaced in banner */
+    } finally {
+      setRunning(null);
     }
   }
 
   return (
     <>
       {error && <div className="error-banner">{error}</div>}
-      <div className="page-head">
-        <div>
-          <h1>Dashboard</h1>
-          <div className="sub">Your AI-assessed inbox at a glance.</div>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button className="btn" onClick={onSync} disabled={!activeId || busy}>
-            {busy && <span className="spin" />} Sync Gmail
-          </button>
-          <button
-            className="btn primary"
-            onClick={onProcess}
-            disabled={!activeId || busy}
-          >
-            {busy && <span className="spin" />} Run AI
-          </button>
-        </div>
+      <div className="sync-bar">
+        <button className="btn" onClick={onSync} disabled={!activeId || busy}>
+          {running === "sync" && <span className="spin" />} Sync Gmail
+        </button>
+        <button
+          className="btn primary"
+          onClick={onProcess}
+          disabled={!activeId || busy}
+        >
+          {running === "process" && <span className="spin" />} Run AI
+        </button>
       </div>
       {notice && <div className="sub" style={{ color: "var(--ok)" }}>{notice}</div>}
     </>

@@ -161,7 +161,9 @@ export default function BillingPage() {
             key={p.name}
             className={`price-card ${p.name.toLowerCase() === currentPlan ? "current" : ""}`}
           >
-            <div className="price-name">{p.name}</div>
+            <div className="price-name">
+              {p.name.charAt(0).toUpperCase() + p.name.slice(1)}
+            </div>
             <div className="price-amount">
               ${p.monthly_price}
               <span className="price-period">/mo</span>
@@ -190,7 +192,7 @@ export default function BillingPage() {
                 ? "Current Plan"
                 : p.monthly_price === 0
                 ? "Select Free"
-                : `Upgrade to ${p.name}`}
+                : `Upgrade to ${p.name.charAt(0).toUpperCase() + p.name.slice(1)}`}
             </button>
           </div>
         ))}
@@ -205,26 +207,33 @@ export default function BillingPage() {
         }
         .price-card {
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: 10px;
           padding: 20px;
           background: var(--card);
-          transition: border-color 0.2s, box-shadow 0.2s;
+          box-shadow: 0 1px 2px rgba(38, 43, 32, 0.04);
+          transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+        .price-card:hover {
+          border-color: var(--border-strong);
+          box-shadow: 0 3px 14px rgba(38, 43, 32, 0.08);
         }
         .price-card.current {
           border-color: var(--primary);
           box-shadow: 0 0 0 2px var(--primary-weak);
         }
         .price-name {
+          font-family: var(--font-display), Georgia, serif;
           font-weight: 600;
-          font-size: 16px;
+          font-size: 17px;
         }
         .price-amount {
+          font-family: var(--font-mono), Consolas, monospace;
           font-size: 32px;
-          font-weight: 700;
+          font-weight: 600;
           margin: 8px 0;
         }
         .price-period {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 400;
           color: var(--muted);
         }
@@ -235,7 +244,7 @@ export default function BillingPage() {
         }
         .price-features li {
           padding: 6px 0;
-          font-size: 14px;
+          font-size: 13.5px;
           color: var(--muted);
         }
         .progress-bar {

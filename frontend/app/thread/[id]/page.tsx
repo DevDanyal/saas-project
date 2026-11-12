@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { CategoryChip, FlagChip, HintChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
-import { get } from "@/lib/api";
+import { CategoryChip, FlagChip, HintChip, ReplyStatusChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
+import { get, patch } from "@/lib/api";
 import type { ThreadDetail } from "@/lib/types";
 import { DraftBox } from "@/components/draft-box";
 
@@ -13,6 +13,7 @@ export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     get<ThreadDetail>(`/emails/threads/${id}`)
@@ -34,6 +35,18 @@ export default function ThreadPage() {
     };
   }, [id]);
 
+  async function setActionStatus(id: string, status: "done" | "cancelled") {
+    setBusyAction(id);
+    try {
+      await patch(`/emails/action-items/${id}`, { status });
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   if (error) return <div className="error-banner">{error}</div>;
   if (!thread) return <div className="empty">Loading thread…</div>;
 
@@ -54,6 +67,7 @@ export default function ThreadPage() {
             {thread.priority_score ?? "–"}
           </span>
           <CategoryChip category={thread.category} />
+          <ReplyStatusChip status={thread.reply_status} />
           {thread.flags?.map((f) => (
             <FlagChip key={f} flag={f} />
           ))}
@@ -98,7 +112,13 @@ export default function ThreadPage() {
               )}
             </div>
 
-            {email.draft && <DraftBox draft={email.draft} onSent={reload} />}
+            {email.draft && (
+              <DraftBox
+                draft={email.draft}
+                recipient={email.from_addr}
+                onChanged={reload}
+              />
+            )}
 
             {email.actions.length > 0 && (
               <div className="panel">
@@ -113,6 +133,28 @@ export default function ThreadPage() {
                       {a.contact && <span className="sub"> · {a.contact}</span>}
                     </span>
                     <span className="time">due {formatDate(a.due)}</span>
+                    {a.status === "open" ? (
+                      <span style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn"
+                          disabled={busyAction === a.id}
+                          onClick={() => void setActionStatus(a.id, "done")}
+                        >
+                          Done
+                        </button>
+                        <button
+                          className="btn"
+                          disabled={busyAction === a.id}
+                          onClick={() => void setActionStatus(a.id, "cancelled")}
+                        >
+                          Dismiss
+                        </button>
+                      </span>
+                    ) : (
+                      <span className={`chip ${a.status === "done" ? "ok" : "neutral"}`}>
+                        {a.status}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

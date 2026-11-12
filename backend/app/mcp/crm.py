@@ -1,8 +1,13 @@
 """CRM MCP Server - HubSpot-style integration for lead management."""
 
+import logging
 from typing import Any, Optional
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class Contact(BaseModel):

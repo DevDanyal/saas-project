@@ -1,26 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { formatDate } from "@/lib/format";
-import { get } from "@/lib/api";
+import { get, patch } from "@/lib/api";
 import type { ActionItem } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
+
+type Filter = "open" | "done" | "cancelled" | "all";
 
 export default function ActionsPage() {
   const { activeId } = useUser();
   const [items, setItems] = useState<ActionItem[] | null>(null);
+  const [filter, setFilter] = useState<Filter>("open");
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!activeId) return;
+    const r = await get<{ action_items: ActionItem[] }>(
+      `/emails/action-items/${activeId}?status=all`,
+    );
+    setItems(r.action_items);
+  }, [activeId]);
 
   useEffect(() => {
     if (!activeId) return;
     let cancelled = false;
     (async () => {
       try {
-        const r = await get<{ action_items: ActionItem[] }>(
-          `/emails/action-items/${activeId}`,
-        );
-        if (!cancelled) setItems(r.action_items);
+        await load();
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -28,7 +37,20 @@ export default function ActionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, load]);
+
+  async function setStatus(id: string, status: "done" | "cancelled" | "open") {
+    setBusyId(id);
+    setError(null);
+    try {
+      await patch(`/emails/action-items/${id}`, { status });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   if (!activeId)
     return (
@@ -39,13 +61,13 @@ export default function ActionsPage() {
     );
 
   if (items === null) return <div className="empty">Loading action items…</div>;
-  if (error) return <div className="error-banner">{error}</div>;
 
   const sorted = [...items].sort((a, b) =>
     (a.due ?? "9999").localeCompare(b.due ?? "9999"),
   );
-  const done = items.filter((i) => i.status === "done");
-  const due = sorted.filter((i) => i.status === "open");
+  const open = items.filter((i) => i.status === "open").length;
+  const done = items.filter((i) => i.status === "done").length;
+  const visible = sorted.filter((i) => filter === "all" || i.status === filter);
 
   return (
     <div>
@@ -53,20 +75,33 @@ export default function ActionsPage() {
         <div>
           <h1>Action Items</h1>
           <div className="sub">
-            {due.length} open · {done.length} done — extracted automatically.
+            {open} open · {done} done — extracted automatically.
           </div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["open", "done", "cancelled", "all"] as Filter[]).map((f) => (
+            <button
+              key={f}
+              className={`btn ${filter === f ? "primary" : ""}`}
+              onClick={() => setFilter(f)}
+            >
+              {f}
+            </button>
+          ))}
         </div>
       </div>
 
-      {due.length === 0 && (
+      {error && <div className="error-banner">{error}</div>}
+
+      {visible.length === 0 && (
         <div className="empty">
-          <h2>Nothing to do</h2>
-          <p>No open action items were extracted from your email yet.</p>
+          <h2>Nothing here</h2>
+          <p>No action items match this filter.</p>
         </div>
       )}
 
       <div className="card" style={{ padding: "6px 0" }}>
-        {due.map((i) => (
+        {visible.map((i) => (
           <div key={i.id} className="action-item" style={{ padding: "10px 16px" }}>
             <span className={`chip ${i.type === "call" ? "hot" : "warm"}`}>{i.type}</span>
             <span className="desc">
@@ -75,6 +110,32 @@ export default function ActionsPage() {
               {i.property && <span className="sub"> · {i.property}</span>}
             </span>
             <span className="time">due {formatDate(i.due)}</span>
+            {i.status === "open" ? (
+              <span style={{ display: "flex", gap: 6 }}>
+                <button
+                  className="btn"
+                  disabled={busyId === i.id}
+                  onClick={() => void setStatus(i.id, "done")}
+                >
+                  Done
+                </button>
+                <button
+                  className="btn"
+                  disabled={busyId === i.id}
+                  onClick={() => void setStatus(i.id, "cancelled")}
+                >
+                  Dismiss
+                </button>
+              </span>
+            ) : (
+              <button
+                className="btn"
+                disabled={busyId === i.id}
+                onClick={() => void setStatus(i.id, "open")}
+              >
+                Reopen
+              </button>
+            )}
           </div>
         ))}
       </div>

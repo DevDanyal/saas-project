@@ -5,14 +5,36 @@ export function scoreClass(score: number | null): string {
   return "ok";
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  lead: "Lead",
+  client: "Customer",
+  vendor: "Vendor",
+  legal: "Legal",
+  financial: "Financial",
+  internal: "Internal",
+  spam: "Spam",
+  newsletter: "Newsletter",
+};
+
 export function CategoryChip({ category }: { category: string | null }) {
   if (!category) return <span className="chip plain">unknown</span>;
+  const label = CATEGORY_LABELS[category] ?? category;
   if (category === "lead" || category === "client")
-    return <span className="chip hot">{category}</span>;
+    return <span className="chip hot">{label}</span>;
   if (category === "legal" || category === "financial")
-    return <span className="chip warm">{category}</span>;
-  if (category === "spam") return <span className="chip plain">{category}</span>;
-  return <span className="chip neutral">{category}</span>;
+    return <span className="chip warm">{label}</span>;
+  if (category === "spam") return <span className="chip plain">{label}</span>;
+  return <span className="chip neutral">{label}</span>;
+}
+
+export function ReplyStatusChip({ status }: { status?: string }) {
+  if (!status || status === "none") return null;
+  if (status === "replied") return <span className="chip ok">Replied</span>;
+  if (status === "draft_ready")
+    return <span className="chip primary">Reply ready</span>;
+  if (status === "needs_reply")
+    return <span className="chip warm">Needs reply</span>;
+  return null;
 }
 
 export function FlagChip({ flag }: { flag: string }) {

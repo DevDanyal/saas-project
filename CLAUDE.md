@@ -1,7 +1,7 @@
 # CLAUDE.md — Project Spec: Full Inbox AI Assistant for Real Estate Agents
 
-> **Project status:** PLANNING (spec locked, implementation NOT started).
-> Do not start building until the user says **"go for plan and implement"**.
+> **Project status:** IMPLEMENTED — core MVP + extended features + billing/team + security hardening (see README).
+> Trigger received: "complete full project a to z".
 
 ---
 

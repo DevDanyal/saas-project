@@ -1,8 +1,8 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text, Uuid, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, JSON, String, Text, Uuid, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -61,6 +61,7 @@ class NotificationType(str, enum.Enum):
     urgent = "urgent"
     closing = "closing"
     complaint = "complaint"
+    digest = "digest"
 
 
 class SubscriptionStatus(str, enum.Enum):
@@ -78,6 +79,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     oauth_tokens: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[RoleType] = mapped_column(
         Enum(RoleType, name="role_type", native_enum=False), default=RoleType.agent
     )
@@ -291,4 +293,34 @@ class Notification(Base):
     is_read: Mapped[bool] = mapped_column(default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class KnowledgeEntry(Base):
+    __tablename__ = "knowledge_entries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "key", name="uq_knowledge_entry"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(64), index=True)
+    key: Mapped[str] = mapped_column(String(255), default="")
+    value: Mapped[dict | list | str | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DailyDigest(Base):
+    __tablename__ = "daily_digests"
+    __table_args__ = (UniqueConstraint("user_id", "digest_date", name="uq_daily_digest"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    digest_date: Mapped[date] = mapped_column(Date, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

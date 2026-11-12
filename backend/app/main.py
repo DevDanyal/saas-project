@@ -1,31 +1,61 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.billing import router as billing_router
 from app.api.routes.emails import router as emails_router
+from app.api.routes.integrations import router as integrations_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.preferences import router as preferences_router
+from app.api.routes.public import router as public_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.teams import router as teams_router
 from app.api.routes.unsubscribe import router as unsubscribe_router
 from app.api.routes.users import router as users_router
-from app.core.config import settings
+from app.core.config import settings, validate_config
+from app.db.session import engine
+from app.services.scheduler import start_scheduler, stop_scheduler
+
+logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="Inbox Assistant API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    for problem in validate_config():
+        logger.warning("configuration: %s", problem)
+    start_scheduler()
+    yield
+    await stop_scheduler()
+
+
+app = FastAPI(title="Inbox Assistant API", version="0.1.0", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+allowed_origins = list(
+    dict.fromkeys(
+        [
+            settings.frontend_url,
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
@@ -67,8 +97,10 @@ async def log_requests(request: Request, call_next):
 
 app.include_router(auth_router)
 app.include_router(emails_router)
+app.include_router(integrations_router)
 app.include_router(notifications_router)
 app.include_router(preferences_router)
+app.include_router(public_router)
 app.include_router(users_router)
 app.include_router(billing_router)
 app.include_router(teams_router)
@@ -83,6 +115,11 @@ async def health():
 
 @app.get("/health/ready")
 async def health_ready():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
     return {"status": "ready"}
 
 

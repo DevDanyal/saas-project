@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 
 import { useUser } from "@/lib/user-context";
 import { SyncBar } from "@/components/sync-bar";
 import { ConnectGmail } from "@/components/connect-gmail";
+import { AuthScreen } from "@/components/auth/auth-screen";
 
 const NAV = [
   { href: "/", label: "Inbox" },
@@ -16,45 +17,8 @@ const NAV = [
   { href: "/billing", label: "Billing" },
   { href: "/teams", label: "Teams" },
   { href: "/reports", label: "Reports" },
+  { href: "/settings", label: "Settings" },
 ];
-
-function LoginPanel() {
-  const { connectGmail, error } = useUser();
-  const [busy, setBusy] = useState(false);
-
-  async function signIn() {
-    setBusy(true);
-    try {
-      await connectGmail();
-    } catch {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="shell">
-      <main className="content" style={{ margin: "0 auto", maxWidth: 460 }}>
-        <div className="empty" style={{ marginTop: 80 }}>
-          <h2>Smart Inbox</h2>
-          <p>
-            Sign in with Google to connect your inbox. We read and summarize your
-            email so you can approve or ignore each thread. Nothing is sent
-            without your say.
-          </p>
-          {error && <div className="error-banner">{error}</div>}
-          <button
-            className="btn primary"
-            onClick={signIn}
-            disabled={busy}
-            style={{ marginTop: 10 }}
-          >
-            {busy && <span className="spin" />} Continue with Google
-          </button>
-        </div>
-      </main>
-    </div>
-  );
-}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -62,16 +26,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!authChecked) {
     return (
-      <div className="shell">
-        <main className="content">
-          <div className="empty">Loading…</div>
-        </main>
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--paper)]">
+        <div className="flex items-center gap-3 text-[13px] text-[var(--muted)]">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--gold)]" />
+          Loading workspace…
+        </div>
       </div>
     );
   }
 
   if (!user) {
-    return <LoginPanel />;
+    return <AuthScreen />;
   }
 
   return (
@@ -80,6 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="brand">
           Smart <em>Inbox</em>
         </div>
+        <div className="sidebar-eyebrow">Agent workspace</div>
         <nav className="nav">
           {NAV.map((n) => {
             const active =

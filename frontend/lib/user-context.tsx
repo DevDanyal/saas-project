@@ -15,6 +15,7 @@ type UserContextValue = {
   user: User | null;
   activeId: string | null;
   authChecked: boolean;
+  refreshUser: () => Promise<User>;
   connectGmail: () => Promise<void>;
   logout: () => Promise<void>;
   syncInbox: () => Promise<SyncStats>;
@@ -24,6 +25,7 @@ type UserContextValue = {
   loadNotifications: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
   busy: boolean;
+  dataVersion: number;
   error: string | null;
 };
 
@@ -36,11 +38,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [dataVersion, setDataVersion] = useState(0);
 
   const activeId = user?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
+    const SESSION_TIMEOUT_MS = 6000;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setAuthChecked(true);
+    }, SESSION_TIMEOUT_MS);
     (async () => {
       try {
         const me = await get<User>("/auth/me");
@@ -53,12 +60,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           setError(e instanceof Error ? e.message : String(e));
         }
       } finally {
+        window.clearTimeout(timer);
         if (!cancelled) setAuthChecked(true);
       }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const me = await get<User>("/auth/me");
+    setUser(me);
+    setAuthChecked(true);
+    setError(null);
+    return me;
   }, []);
 
   const connectGmail = useCallback(async () => {
@@ -108,6 +125,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [loadNotifications],
   );
 
+  useEffect(() => {
+    if (!activeId) return;
+    const refresh = () => {
+      loadNotifications().catch(() => {});
+    };
+    const timer = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [activeId, loadNotifications]);
+
   const syncInbox = useCallback(async () => {
     if (!activeId) throw new Error("Not signed in");
     setBusy(true);
@@ -119,6 +149,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       throw e;
     } finally {
       setBusy(false);
+      setDataVersion((v) => v + 1);
     }
   }, [activeId]);
 
@@ -133,6 +164,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       throw e;
     } finally {
       setBusy(false);
+      setDataVersion((v) => v + 1);
     }
   }, [activeId]);
 
@@ -142,6 +174,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         user,
         activeId,
         authChecked,
+        refreshUser,
         connectGmail,
         logout,
         syncInbox,
@@ -151,6 +184,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         loadNotifications,
         markRead,
         busy,
+        dataVersion,
         error,
       }}
     >
