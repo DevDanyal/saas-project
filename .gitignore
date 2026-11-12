@@ -39,3 +39,8 @@ Thumbs.db
 *.log
 logs/
 .neon
+
+.vercel
+.env
+.env.*
+!**/.env.example

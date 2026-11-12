@@ -1,3 +1,39 @@
+[project]
+name = "inbox-assistant-backend"
+version = "0.1.0"
+description = "AI inbox assistant backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "aiosqlite",
+    "greenlet",
+    "alembic",
+    "pydantic",
+    "pydantic-settings",
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+    "openai",
+    "anthropic",
+    "google-generativeai",
+    "cryptography",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "stripe",
+    "slowapi",
+    "python-dotenv",
+    "requests",
+    "dnspython",
+    "httpx",
+]
+
+[tool.uv]
+package = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

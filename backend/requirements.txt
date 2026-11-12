@@ -6,9 +6,10 @@ uvicorn[standard]
 python-multipart
 
 # --- Data ---
-sqlalchemy
+sqlalchemy[asyncio]
 asyncpg
 aiosqlite
+greenlet
 alembic
 pydantic
 pydantic-settings

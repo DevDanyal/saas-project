@@ -44,7 +44,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const SESSION_TIMEOUT_MS = 6000;
+    const SESSION_TIMEOUT_MS = 15000;
     const timer = window.setTimeout(() => {
       if (!cancelled) setAuthChecked(true);
     }, SESSION_TIMEOUT_MS);
