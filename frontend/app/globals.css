@@ -441,6 +441,45 @@ h3 {
   color: #2c3226;
 }
 
+.email-card .email-summary {
+  margin-top: 10px;
+}
+
+.email-original {
+  margin-top: 10px;
+}
+
+.email-original > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gold-dark);
+  list-style: none;
+}
+
+.email-original > summary::-webkit-details-marker {
+  display: none;
+}
+
+.email-original > summary::before {
+  content: "▸ ";
+}
+
+.email-original[open] > summary::before {
+  content: "▾ ";
+}
+
+.email-original .body {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--sunk);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .ai-box {
   background: var(--gold-weak);
   border: 1px solid #dfce9e;

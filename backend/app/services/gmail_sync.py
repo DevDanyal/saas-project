@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud, models
 from app.services import crypto, gmail_auth, gmail_send
+from app.services.email_text import clean_email_body, html_to_text
 
 
 def account_can_send(account: models.EmailAccount | None) -> bool:
@@ -22,17 +23,37 @@ def _credentials_from_account(account: models.EmailAccount) -> Credentials:
     return Credentials.from_authorized_user_info(json.loads(token_json), scopes=gmail_auth.SCOPES)
 
 
-def _extract_text(payload: dict) -> str:
-    if payload.get("mimeType") == "text/plain":
-        data = (payload.get("body") or {}).get("data") or ""
-        try:
-            return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
-        except Exception:
-            return ""
-    text = ""
+def _decode_part_data(payload: dict) -> str:
+    data = (payload.get("body") or {}).get("data") or ""
+    if not data:
+        return ""
+    try:
+        return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _collect_body_parts(payload: dict, plain: list[str], rich: list[str]) -> None:
+    mime = (payload.get("mimeType") or "").lower()
+    decoded = _decode_part_data(payload)
+    if decoded:
+        if mime == "text/plain":
+            plain.append(decoded)
+        elif mime == "text/html":
+            rich.append(decoded)
     for part in payload.get("parts", []) or []:
-        text += _extract_text(part) or ""
-    return text
+        _collect_body_parts(part, plain, rich)
+
+
+def _extract_text(payload: dict) -> str:
+    plain: list[str] = []
+    rich: list[str] = []
+    _collect_body_parts(payload, plain, rich)
+    if plain:
+        return clean_email_body("\n\n".join(plain))
+    if rich:
+        return clean_email_body(html_to_text("\n".join(rich)))
+    return ""
 
 
 def _has_attachment(payload: dict) -> bool:
@@ -111,7 +132,7 @@ async def sync_user_inbox(
                     continue
 
                 payload = msg.get("payload", {})
-                body = _extract_text(payload) or msg.get("snippet", "")
+                body = _extract_text(payload) or clean_email_body(msg.get("snippet", ""))
                 await crud.insert_email(
                     db, thread.id, mid,
                     _header(msg, "From"), _header(msg, "To"),

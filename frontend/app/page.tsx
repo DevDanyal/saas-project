@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   CategoryChip,
@@ -162,6 +162,17 @@ export default function InboxPage() {
       setRunState("idle");
     }
   }, [activeId, runState, syncInbox, processAll]);
+
+  const autoRan = useRef(false);
+
+  useEffect(() => {
+    if (autoRan.current || !activeId) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") !== "1") return;
+    autoRan.current = true;
+    window.history.replaceState({}, "", window.location.pathname);
+    window.setTimeout(() => void runAssistant(), 0);
+  }, [activeId, runAssistant]);
 
   if (!activeId)
     return (

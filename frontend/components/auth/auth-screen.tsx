@@ -92,12 +92,28 @@ export function AuthScreen() {
       return;
     }
 
+    let me: User | null = null;
     try {
-      await refreshUser();
+      me = await refreshUser();
     } catch {
       setError(
         `Signed in, but the session cookie was not saved. Open the app at ${window.location.origin} and try again.`,
       );
+    }
+
+    if (
+      me &&
+      !me.gmail_connected &&
+      /@(gmail|googlemail)\.com$/i.test(cleanEmail)
+    ) {
+      try {
+        await connectGmail();
+        return;
+      } catch {
+        setError(
+          "Signed in, but could not start the Gmail connection. Click Connect Gmail and try again.",
+        );
+      }
     }
     setBusy(false);
   }

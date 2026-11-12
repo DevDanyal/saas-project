@@ -86,3 +86,18 @@ export function formatDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
+
+export function cleanEmailBody(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\(\s*https?:\/\/[^)\s]*\s*\)/gi, " ")
+    .replace(/<\s*https?:\/\/[^>\s]*\s*>/gi, " ")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\f\v]+/g, " ").trim())
+    .filter((line) => line && !/^[\s,.;:!?|•·*#\-_=]+$/.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

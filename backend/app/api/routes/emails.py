@@ -15,6 +15,7 @@ from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
 from app.services import billing, digest_service, gmail_sync
+from app.services.email_text import clean_email_body
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/emails", tags=["emails"])
@@ -448,7 +449,7 @@ async def thread_detail(
                 "to_addr": e.to_addr,
                 "subject": e.subject,
                 "received_at": _iso(e.received_at),
-                "body": e.body,
+                "body": clean_email_body(e.body),
                 "ai_summary": e.ai_summary,
                 "sentiment": e.sentiment,
                 "has_attachment": e.has_attachment,
