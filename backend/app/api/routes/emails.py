@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.agents import pipeline
+from app.agents import pipeline, reply_drafter
 from app.core.config import settings
 from app.core.security import ensure_self, require_user
 from app.db import crud, models
@@ -209,8 +209,71 @@ async def process_email(
         result = await pipeline.process_email(db, email_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=502, detail=f"AI processing failed: {e}")
     await db.commit()
     return result
+
+
+@router.post("/{email_id}/draft")
+@limiter.limit("30/minute")
+async def generate_draft(
+    request: Request,
+    email_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Generate (or refresh) just the AI reply draft for one email."""
+    email = await db.get(models.Email, email_id)
+    if email is None:
+        raise HTTPException(status_code=404, detail="Email not found")
+    thread = await db.get(models.Thread, email.thread_id)
+    if thread is None or thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    thread_emails = await crud.list_emails_for_thread(db, thread.id)
+    thread_emails.sort(key=lambda m: m.received_at)
+    thread_dicts = [
+        {
+            "from_addr": m.from_addr,
+            "received_at": m.received_at.isoformat() if m.received_at else "",
+            "subject": m.subject,
+            "body": m.body,
+        }
+        for m in thread_emails
+    ]
+    prefs = await crud.get_preferences(db, thread.user_id)
+    try:
+        reply = reply_drafter.draft_reply(
+            thread_dicts,
+            tone_profile=prefs.tone_profile if prefs else None,
+            rules=prefs.rules if prefs else None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI draft failed: {e}")
+    text = (reply.get("reply_text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="AI did not return a reply draft")
+
+    existing = await crud.get_draft_for_email(db, email.id)
+    if existing is not None and existing.status == models.DraftStatus.sent:
+        raise HTTPException(status_code=409, detail="This email already has a sent reply")
+    if existing is not None:
+        existing.text = text
+        existing.tone = reply.get("suggested_tone", "")
+        existing.status = models.DraftStatus.draft
+        existing.auto_decision = None
+        await db.commit()
+        await db.refresh(existing)
+        return _draft_dict(existing)
+
+    draft = await crud.add_draft(
+        db, email.id, text, tone=reply.get("suggested_tone", "")
+    )
+    await db.commit()
+    await db.refresh(draft)
+    return _draft_dict(draft)
 
 
 @router.post("/process-all/{user_id}")

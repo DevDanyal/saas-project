@@ -62,7 +62,7 @@ export default function ThreadPage() {
     setDraftingId(emailId);
     setError(null);
     try {
-      await post(`/emails/process/${emailId}`);
+      await post(`/emails/${emailId}/draft`);
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

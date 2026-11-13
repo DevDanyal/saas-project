@@ -9,11 +9,15 @@ generate_json (see app/agents and the pipeline).
 """
 
 import json
+import time
 from typing import Callable, Mapping
 
 import requests
 
 from app.core.config import settings
+
+REQUEST_TIMEOUT = 30
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 PROVIDERS: dict[str, dict] = {
     "openai": {
@@ -81,7 +85,7 @@ def _call_openai(system: str, user: str, temperature: float, max_tokens: int) ->
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         },
-        timeout=120,
+        timeout=REQUEST_TIMEOUT,
     )
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
@@ -104,7 +108,7 @@ def _call_anthropic(system: str, user: str, temperature: float, max_tokens: int)
             "temperature": temperature,
             "max_tokens": max_tokens,
         },
-        timeout=120,
+        timeout=REQUEST_TIMEOUT,
     )
     resp.raise_for_status()
     text = resp.json()["content"][0]["text"]
@@ -131,7 +135,7 @@ def _call_gemini(system: str, user: str, temperature: float, max_tokens: int) ->
                 "thinkingConfig": {"thinkingBudget": 0},
             },
         },
-        timeout=120,
+        timeout=REQUEST_TIMEOUT,
     )
     resp.raise_for_status()
     candidates = resp.json().get("candidates") or []
@@ -157,6 +161,22 @@ def available_providers() -> list[str]:
     return providers
 
 
+def _describe_error(exc: Exception) -> str:
+    """Short, key-free description of a provider failure."""
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        body = " ".join((exc.response.text or "").split())
+        return f"HTTP {exc.response.status_code}: {body[:180]}"
+    return f"{type(exc).__name__}: {str(exc)[:180]}"
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return (
+        isinstance(exc, requests.HTTPError)
+        and exc.response is not None
+        and exc.response.status_code in RETRYABLE_STATUS
+    )
+
+
 def generate_json(
     system: str,
     user: str,
@@ -178,15 +198,20 @@ def generate_json(
         "anthropic": _call_anthropic,
         "gemini": _call_gemini,
     }
-    last_exc: Exception | None = None
+    failures: list[str] = []
     for provider in providers:
+        callback = callers[provider]
         try:
-            return callers[provider](system, user, temperature, max_tokens)
+            return callback(system, user, temperature, max_tokens)
         except Exception as exc:  # noqa: BLE001 - try next provider
-            last_exc = exc
-            continue
-    assert last_exc is not None
-    raise last_exc
+            if _is_retryable(exc):
+                time.sleep(1)
+                try:
+                    return callback(system, user, temperature, max_tokens)
+                except Exception as retry_exc:  # noqa: BLE001
+                    exc = retry_exc
+            failures.append(f"{provider}: {_describe_error(exc)}")
+    raise RuntimeError("All AI providers failed — " + "; ".join(failures))
 
 
 class FakeLlm:
