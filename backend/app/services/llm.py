@@ -20,6 +20,10 @@ REQUEST_TIMEOUT = 30
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 PROVIDERS: dict[str, dict] = {
+    "groq": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "model": "llama-3.3-70b-versatile",
+    },
     "openai": {
         "url": "https://api.openai.com/v1/chat/completions",
         "model": "gpt-4o-mini",
@@ -36,6 +40,8 @@ PROVIDERS: dict[str, dict] = {
 
 
 def detect_provider() -> str | None:
+    if settings.groq_api_key:
+        return "groq"
     if settings.openai_api_key:
         return "openai"
     if settings.anthropic_api_key:
@@ -47,6 +53,7 @@ def detect_provider() -> str | None:
 
 def _api_key(provider: str) -> str:
     return {
+        "groq": settings.groq_api_key,
         "openai": settings.openai_api_key,
         "anthropic": settings.anthropic_api_key,
         "gemini": settings.gemini_api_key,
@@ -67,12 +74,18 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def _call_openai(system: str, user: str, temperature: float, max_tokens: int) -> dict:
-    spec = PROVIDERS["openai"]
+def _call_openai_compatible(
+    provider: str,
+    system: str,
+    user: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict:
+    spec = PROVIDERS[provider]
     resp = requests.post(
         spec["url"],
         headers={
-            "Authorization": f"Bearer {_api_key('openai')}",
+            "Authorization": f"Bearer {_api_key(provider)}",
             "Content-Type": "application/json",
         },
         json={
@@ -90,6 +103,14 @@ def _call_openai(system: str, user: str, temperature: float, max_tokens: int) ->
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
     return _extract_json(content)
+
+
+def _call_openai(system: str, user: str, temperature: float, max_tokens: int) -> dict:
+    return _call_openai_compatible("openai", system, user, temperature, max_tokens)
+
+
+def _call_groq(system: str, user: str, temperature: float, max_tokens: int) -> dict:
+    return _call_openai_compatible("groq", system, user, temperature, max_tokens)
 
 
 def _call_anthropic(system: str, user: str, temperature: float, max_tokens: int) -> dict:
@@ -152,6 +173,8 @@ def available_providers() -> list[str]:
     # Prefer providers that are typically free/cheap and reliable; OpenAI is
     # last because its free tier is heavily rate-limited.
     providers: list[str] = []
+    if settings.groq_api_key:
+        providers.append("groq")
     if settings.gemini_api_key:
         providers.append("gemini")
     if settings.anthropic_api_key:
@@ -191,9 +214,10 @@ def generate_json(
     providers = available_providers()
     if not providers:
         raise RuntimeError(
-            "No LLM API key configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY."
+            "No LLM API key configured. Set GROQ_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY."
         )
     callers: Mapping[str, Callable[..., dict]] = {
+        "groq": _call_groq,
         "openai": _call_openai,
         "anthropic": _call_anthropic,
         "gemini": _call_gemini,

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
+    groq_api_key: str = ""
     session_secret: str = ""
     frontend_url: str = "http://localhost:3000"
     backend_url: str = "http://localhost:8000"
