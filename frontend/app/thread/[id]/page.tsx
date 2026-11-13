@@ -5,15 +5,26 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { CategoryChip, cleanEmailBody, FlagChip, HintChip, ReplyStatusChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
-import { get, patch } from "@/lib/api";
+import { get, patch, post } from "@/lib/api";
 import type { ThreadDetail } from "@/lib/types";
 import { DraftBox } from "@/components/draft-box";
+
+const NOISE_CATEGORIES = new Set(["spam", "newsletter"]);
+
+function summarize(body: string): string {
+  const text = body.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const sentences = text.match(/[^.!?]+[.!?]+/g) ?? [text];
+  const summary = sentences.slice(0, 2).join(" ").trim();
+  return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}…` : summary;
+}
 
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [draftingId, setDraftingId] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     get<ThreadDetail>(`/emails/threads/${id}`)
@@ -44,6 +55,19 @@ export default function ThreadPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function generateDraft(emailId: string) {
+    setDraftingId(emailId);
+    setError(null);
+    try {
+      await post(`/emails/process/${emailId}`);
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDraftingId(null);
     }
   }
 
@@ -97,6 +121,8 @@ export default function ThreadPage() {
         )
         .map((email) => {
           const body = cleanEmailBody(email.body);
+          const summary = (email.ai_summary || summarize(body)).trim();
+          const isNoise = thread.category ? NOISE_CATEGORIES.has(thread.category) : false;
           return (
             <div key={email.id} className="email-card">
               <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -107,24 +133,38 @@ export default function ThreadPage() {
                 </span>
               </div>
 
-              {email.ai_summary && (
+              {summary ? (
                 <div className="ai-box email-summary">
-                  <div className="label">What this email wants</div>
-                  {email.ai_summary}
+                  <div className="label">
+                    {email.ai_summary ? "What this email wants" : "Quick summary"}
+                  </div>
+                  {summary}
                 </div>
-              )}
+              ) : null}
 
               {body && (
-                <details className="email-original" open={!email.ai_summary}>
-                  <summary>{email.ai_summary ? "Show original email" : "Email"}</summary>
+                <details className="email-original">
+                  <summary>Show original email</summary>
                   <div className="body">{body}</div>
                 </details>
               )}
-              {!body && !email.ai_summary && <div className="body">(empty)</div>}
+              {!body && !summary && <div className="body">(empty)</div>}
 
               <div className="badge-row">
                 <MoodChip sentiment={email.sentiment} />
               </div>
+
+              {!email.draft && !isNoise && (
+                <div className="draft-actions" style={{ marginTop: 10 }}>
+                  <button
+                    className="btn"
+                    disabled={draftingId === email.id}
+                    onClick={() => void generateDraft(email.id)}
+                  >
+                    {draftingId === email.id ? "Drafting…" : "Generate AI reply"}
+                  </button>
+                </div>
+              )}
 
               {email.draft && (
                 <DraftBox
