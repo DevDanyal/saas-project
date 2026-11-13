@@ -115,6 +115,7 @@ export type ProcessStats = {
   processed: number;
   errors: number;
   pending: number;
+  last_error?: string | null;
 };
 
 export type Notification = {

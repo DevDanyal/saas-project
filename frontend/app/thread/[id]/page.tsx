@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CategoryChip, cleanEmailBody, FlagChip, HintChip, ReplyStatusChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
 import { get, patch, post } from "@/lib/api";
@@ -25,6 +25,28 @@ export default function ThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [draftingId, setDraftingId] = useState<string | null>(null);
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const openedOnce = useRef(false);
+
+  useEffect(() => {
+    if (!thread || openedOnce.current || thread.emails.length === 0) return;
+    openedOnce.current = true;
+    const sorted = [...thread.emails].sort(
+      (a, b) =>
+        new Date(a.received_at ?? 0).getTime() -
+        new Date(b.received_at ?? 0).getTime(),
+    );
+    setOpenIds(new Set([sorted[sorted.length - 1].id]));
+  }, [thread]);
+
+  function toggleEmail(emailId: string) {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(emailId)) next.delete(emailId);
+      else next.add(emailId);
+      return next;
+    });
+  }
 
   const reload = useCallback(() => {
     get<ThreadDetail>(`/emails/threads/${id}`)
@@ -123,94 +145,108 @@ export default function ThreadPage() {
           const body = cleanEmailBody(email.body);
           const summary = (email.ai_summary || summarize(body)).trim();
           const isNoise = thread.category ? NOISE_CATEGORIES.has(thread.category) : false;
+          const open = openIds.has(email.id);
+          const sender = email.from_addr || "Unknown sender";
+          const initial = (sender.match(/[A-Za-z0-9]/)?.[0] ?? "?").toUpperCase();
           return (
-            <div key={email.id} className="email-card">
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span className="from">{email.from_addr}</span>
+            <div key={email.id} className={`email-card gmail ${open ? "open" : ""}`}>
+              <button
+                type="button"
+                className="email-row"
+                aria-expanded={open}
+                onClick={() => toggleEmail(email.id)}
+              >
+                <span className="email-avatar">{initial}</span>
+                <span className="email-sender">{sender}</span>
+                <span className="email-snippet">{summary || "(no preview)"}</span>
                 <span className="time">
                   {formatTime(email.received_at)}
                   {email.has_attachment ? " · attachment" : ""}
                 </span>
-              </div>
+              </button>
 
-              {summary ? (
-                <div className="ai-box email-summary">
-                  <div className="label">
-                    {email.ai_summary ? "What this email wants" : "Quick summary"}
-                  </div>
-                  {summary}
-                </div>
-              ) : null}
-
-              {body && (
-                <details className="email-original">
-                  <summary>Show original email</summary>
-                  <div className="body">{body}</div>
-                </details>
-              )}
-              {!body && !summary && <div className="body">(empty)</div>}
-
-              <div className="badge-row">
-                <MoodChip sentiment={email.sentiment} />
-              </div>
-
-              {!email.draft && !isNoise && (
-                <div className="draft-actions" style={{ marginTop: 10 }}>
-                  <button
-                    className="btn"
-                    disabled={draftingId === email.id}
-                    onClick={() => void generateDraft(email.id)}
-                  >
-                    {draftingId === email.id ? "Drafting…" : "Generate AI reply"}
-                  </button>
-                </div>
-              )}
-
-              {email.draft && (
-                <DraftBox
-                  draft={email.draft}
-                  recipient={email.from_addr}
-                  onChanged={reload}
-                />
-              )}
-
-              {email.actions.length > 0 && (
-                <div className="panel">
-                  <div className="label">Suggested actions</div>
-                  {email.actions.map((a) => (
-                    <div key={a.id} className="action-item">
-                      <span className={`chip ${a.type === "call" ? "hot" : "warm"}`}>
-                        {a.type}
-                      </span>
-                      <span className="desc">
-                        {a.description}
-                        {a.contact && <span className="sub"> · {a.contact}</span>}
-                      </span>
-                      <span className="time">due {formatDate(a.due)}</span>
-                      {a.status === "open" ? (
-                        <span style={{ display: "flex", gap: 6 }}>
-                          <button
-                            className="btn"
-                            disabled={busyAction === a.id}
-                            onClick={() => void setActionStatus(a.id, "done")}
-                          >
-                            Done
-                          </button>
-                          <button
-                            className="btn"
-                            disabled={busyAction === a.id}
-                            onClick={() => void setActionStatus(a.id, "cancelled")}
-                          >
-                            Dismiss
-                          </button>
-                        </span>
-                      ) : (
-                        <span className={`chip ${a.status === "done" ? "ok" : "neutral"}`}>
-                          {a.status}
-                        </span>
-                      )}
+              {open && (
+                <div className="email-expanded">
+                  {summary ? (
+                    <div className="ai-box email-summary">
+                      <div className="label">
+                        {email.ai_summary ? "What this email wants" : "Quick summary"}
+                      </div>
+                      {summary}
                     </div>
-                  ))}
+                  ) : null}
+
+                  {body && (
+                    <details className="email-original">
+                      <summary>Show original email</summary>
+                      <div className="body">{body}</div>
+                    </details>
+                  )}
+                  {!body && !summary && <div className="body">(empty)</div>}
+
+                  <div className="badge-row">
+                    <MoodChip sentiment={email.sentiment} />
+                  </div>
+
+                  {!email.draft && !isNoise && (
+                    <div className="draft-actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn"
+                        disabled={draftingId === email.id}
+                        onClick={() => void generateDraft(email.id)}
+                      >
+                        {draftingId === email.id ? "Drafting…" : "Generate AI reply"}
+                      </button>
+                    </div>
+                  )}
+
+                  {email.draft && (
+                    <DraftBox
+                      draft={email.draft}
+                      recipient={email.from_addr}
+                      onChanged={reload}
+                    />
+                  )}
+
+                  {email.actions.length > 0 && (
+                    <div className="panel">
+                      <div className="label">Suggested actions</div>
+                      {email.actions.map((a) => (
+                        <div key={a.id} className="action-item">
+                          <span className={`chip ${a.type === "call" ? "hot" : "warm"}`}>
+                            {a.type}
+                          </span>
+                          <span className="desc">
+                            {a.description}
+                            {a.contact && <span className="sub"> · {a.contact}</span>}
+                          </span>
+                          <span className="time">due {formatDate(a.due)}</span>
+                          {a.status === "open" ? (
+                            <span style={{ display: "flex", gap: 6 }}>
+                              <button
+                                className="btn"
+                                disabled={busyAction === a.id}
+                                onClick={() => void setActionStatus(a.id, "done")}
+                              >
+                                Done
+                              </button>
+                              <button
+                                className="btn"
+                                disabled={busyAction === a.id}
+                                onClick={() => void setActionStatus(a.id, "cancelled")}
+                              >
+                                Dismiss
+                              </button>
+                            </span>
+                          ) : (
+                            <span className={`chip ${a.status === "done" ? "ok" : "neutral"}`}>
+                              {a.status}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

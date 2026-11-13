@@ -156,6 +156,9 @@ export default function InboxPage() {
       parts.push(`${plural(p.processed, "email")} reviewed`);
       if (p.errors) parts.push(`${p.errors} error(s)`);
       setNotice(parts.join(" · "));
+      if (p.errors && p.last_error) {
+        setError(`Some emails could not be reviewed: ${p.last_error}`);
+      }
     } catch {
       /* error surfaced in banner */
     } finally {

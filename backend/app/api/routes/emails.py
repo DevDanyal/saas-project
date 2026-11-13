@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, or_, select
+from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -277,14 +277,19 @@ async def generate_draft(
 
 
 @router.post("/process-all/{user_id}")
-@limiter.limit("5/hour")
+@limiter.limit("120/hour")
 async def process_inbox(
     request: Request,
     user_id: uuid.UUID,
+    limit: int = 8,
     user: models.User = Depends(require_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """Run the AI pipeline over every synced email that hasn't been processed."""
+    """Run the AI pipeline over a small batch of unprocessed emails.
+
+    The frontend calls this repeatedly until ``pending`` reaches zero so each
+    request stays inside the serverless time limit.
+    """
     ensure_self(user, user_id)
     can_process, usage = await billing.check_email_limit(db, user_id)
     if not can_process:
@@ -297,13 +302,20 @@ async def process_inbox(
             },
         )
 
-    result = await db.execute(
-        select(models.Email)
-        .join(models.Thread)
-        .where(models.Thread.user_id == user_id, models.Email.ai_summary.is_(None))
+    limit = max(1, min(limit, 20))
+    pending_filter = (
+        models.Thread.user_id == user_id,
+        models.Email.ai_summary.is_(None),
     )
-    email_ids = [e.id for e in result.scalars().all()]
-    processed, errors = 0, 0
+    result = await db.execute(
+        select(models.Email.id)
+        .join(models.Thread)
+        .where(*pending_filter)
+        .order_by(models.Email.received_at.asc())
+        .limit(limit)
+    )
+    email_ids = list(result.scalars().all())
+    processed, errors, last_error = 0, 0, None
     for email_id in email_ids:
         can_process, _ = await billing.check_email_limit(db, user_id)
         if not can_process:
@@ -312,10 +324,22 @@ async def process_inbox(
             await pipeline.process_email(db, email_id)
             await db.commit()
             processed += 1
-        except Exception:
+        except Exception as e:
             await db.rollback()
             errors += 1
-    return {"processed": processed, "errors": errors, "pending": len(email_ids)}
+            last_error = str(e)[:300]
+    remaining = await db.scalar(
+        select(func.count())
+        .select_from(models.Email)
+        .join(models.Thread)
+        .where(*pending_filter)
+    )
+    return {
+        "processed": processed,
+        "errors": errors,
+        "pending": remaining or 0,
+        "last_error": last_error,
+    }
 
 
 @router.post("/drafts/{draft_id}/send")
