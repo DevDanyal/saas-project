@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -30,6 +30,10 @@ class UpdateDraftRequest(BaseModel):
     tone: str | None = None
 
 
+class MarkReadRequest(BaseModel):
+    is_read: bool = True
+
+
 class UpdateActionItemRequest(BaseModel):
     status: Literal["open", "done", "cancelled"]
 
@@ -44,6 +48,7 @@ def _thread_summary(
     email_count: int = 0,
     reply_status: str = "none",
     last_from: str | None = None,
+    unread: int = 0,
 ) -> dict:
     return {
         "id": str(t.id),
@@ -58,6 +63,7 @@ def _thread_summary(
         "reply_status": reply_status,
         "emails": email_count,
         "email_count": email_count,
+        "unread": unread,
     }
 
 
@@ -77,7 +83,13 @@ async def _thread_meta_map(db: AsyncSession, threads: list[models.Thread]) -> di
     """Bulk-load email counts, latest sender, and reply status per thread."""
     thread_ids = [t.id for t in threads]
     meta: dict = {
-        tid: {"emails": 0, "last_from": None, "last_email_at": None, "draft_statuses": []}
+        tid: {
+            "emails": 0,
+            "unread": 0,
+            "last_from": None,
+            "last_email_at": None,
+            "draft_statuses": [],
+        }
         for tid in thread_ids
     }
     if not thread_ids:
@@ -106,6 +118,8 @@ async def _thread_meta_map(db: AsyncSession, threads: list[models.Thread]) -> di
         if m is None:
             continue
         m["emails"] += 1
+        if not e.is_read:
+            m["unread"] += 1
         if m["last_email_at"] is None or (
             e.received_at is not None and e.received_at >= m["last_email_at"]
         ):
@@ -138,11 +152,14 @@ async def inbox_stats(
     reply_status = {"replied": 0, "draft_ready": 0, "needs_reply": 0, "none": 0}
     processed = 0
     attention = 0
+    unread_threads = 0
     for t in threads:
         key = t.category.value if t.category else "uncategorized"
         categories[key] = categories.get(key, 0) + 1
         status = meta[t.id]["reply_status"]
         reply_status[status] = reply_status.get(status, 0) + 1
+        if meta[t.id]["unread"]:
+            unread_threads += 1
         if t.summary:
             processed += 1
         flags = set(t.flags or [])
@@ -157,6 +174,7 @@ async def inbox_stats(
         "leads": categories.get("lead", 0),
         "attention": attention,
         "pending_drafts": reply_status.get("draft_ready", 0),
+        "unread": unread_threads,
         "categories": categories,
         "reply_status": reply_status,
     }
@@ -214,6 +232,27 @@ async def process_email(
         raise HTTPException(status_code=502, detail=f"AI processing failed: {e}")
     await db.commit()
     return result
+
+
+@router.patch("/{email_id}/read")
+@limiter.limit("120/minute")
+async def mark_email_read(
+    request: Request,
+    email_id: uuid.UUID,
+    body: MarkReadRequest,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Mark a single email read or unread."""
+    email = await db.get(models.Email, email_id)
+    if email is None:
+        raise HTTPException(status_code=404, detail="Email not found")
+    thread = await db.get(models.Thread, email.thread_id)
+    if thread is None or thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email.is_read = body.is_read
+    await db.commit()
+    return {"id": str(email.id), "is_read": email.is_read}
 
 
 @router.post("/{email_id}/draft")
@@ -447,6 +486,7 @@ async def inbox(
     q: str | None = None,
     category: str | None = None,
     flag: str | None = None,
+    unread: bool = False,
     min_priority: int | None = None,
     sort: Literal["priority", "recent", "subject"] = "priority",
     order: Literal["asc", "desc"] = "desc",
@@ -470,6 +510,13 @@ async def inbox(
             raise HTTPException(status_code=422, detail="Unknown category")
     if min_priority is not None:
         stmt = stmt.where(models.Thread.priority_score >= min_priority)
+    if unread:
+        stmt = stmt.where(
+            exists().where(
+                models.Email.thread_id == models.Thread.id,
+                models.Email.is_read.is_(False),
+            )
+        )
 
     sort_column = {
         "priority": models.Thread.priority_score,
@@ -490,6 +537,7 @@ async def inbox(
                 email_count=meta[t.id]["emails"],
                 reply_status=meta[t.id]["reply_status"],
                 last_from=meta[t.id]["last_from"],
+                unread=meta[t.id]["unread"],
             )
             for t in threads
         ]
@@ -528,6 +576,7 @@ async def thread_detail(
             email_count=len(emails),
             reply_status=reply_status,
             last_from=emails[0].from_addr if emails else None,
+            unread=sum(1 for e in emails if not e.is_read),
         ),
         "emails": [
             {
@@ -540,6 +589,7 @@ async def thread_detail(
                 "ai_summary": e.ai_summary,
                 "sentiment": e.sentiment,
                 "has_attachment": e.has_attachment,
+                "is_read": e.is_read,
                 "draft": (
                     {
                         "id": str(drafts[e.id].id),

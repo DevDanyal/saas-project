@@ -267,6 +267,10 @@ h3 {
   white-space: nowrap;
 }
 
+.thread-row .subject .unread-dot {
+  margin-right: 6px;
+}
+
 .thread-row .meta {
   color: var(--muted);
   font-family: var(--font-mono), Consolas, monospace;
@@ -475,6 +479,28 @@ h3 {
   font-weight: 600;
 }
 
+.email-sender.unread {
+  color: var(--ink);
+}
+
+.email-sender .unread-dot {
+  margin-right: 6px;
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold-dark);
+  vertical-align: middle;
+}
+
+.unread-count {
+  color: var(--gold-dark);
+  font-weight: 600;
+}
+
 .email-snippet {
   flex: 1;
   min-width: 0;
@@ -488,6 +514,34 @@ h3 {
 .email-expanded {
   padding: 0 18px 16px;
   border-top: 1px solid var(--border);
+}
+
+.email-expanded-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 2px;
+}
+
+.email-to {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--gold-dark);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: var(--ink);
 }
 
 .email-expanded .email-summary {

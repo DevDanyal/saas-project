@@ -29,6 +29,113 @@ Examples:
 """
 
 
+_ALIASES = {
+    "customer": "client",
+    "customers": "client",
+    "buyer": "client",
+    "buyers": "client",
+    "seller": "client",
+    "sellers": "client",
+    "active_client": "client",
+    "leads": "lead",
+    "prospect": "lead",
+    "prospects": "lead",
+    "buyer_lead": "lead",
+    "seller_lead": "lead",
+    "vendors": "vendor",
+    "inspector": "vendor",
+    "inspectors": "vendor",
+    "contractor": "vendor",
+    "contractors": "vendor",
+    "lawyer": "legal",
+    "lawyers": "legal",
+    "attorney": "legal",
+    "attorneys": "legal",
+    "finance": "financial",
+    "mortgage": "financial",
+    "billing": "financial",
+    "team": "internal",
+    "company": "internal",
+    "office": "internal",
+    "promotion": "spam",
+    "junk": "spam",
+    "phishing": "spam",
+    "marketing": "newsletter",
+    "subscription": "newsletter",
+    "digest": "newsletter",
+}
+
+_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("spam", (
+        "you'v won", "you won", "prize", "lottery", "phishing", "crypto",
+        "viagra", "click here to claim", "act now", "risk-free",
+    )),
+    ("newsletter", (
+        "unsubscribe", "newsletter", "daily digest", "weekly digest",
+        "market report", "linkedin", "pinterest", "people you may know",
+        "view in browser", "manage preferences",
+    )),
+    ("legal", (
+        "attorney", "lawyer", "legal", "purchase agreement", "contract",
+        "disclosure", "addendum", "attached agreement", "escrow instructions",
+    )),
+    ("financial", (
+        "mortgage", "pre-approved", "pre approved", "preapproval", "loan",
+        "wire instructions", "earnest money", "closing cost", "escrow",
+        "apr", "interest rate", "down payment",
+    )),
+    ("vendor", (
+        "inspection", "inspector", "photographer", "staging", "appraiser",
+        "appraisal report", "contractor", "title company", "handyman",
+    )),
+    ("lead", (
+        "interested in", "schedule a showing", "see the home", "book a tour",
+        "looking to buy", "looking to sell", "listing alert", "pre-approved for",
+    )),
+    ("client", (
+        "under contract", "offer accepted", "closing date", "final walkthrough",
+        "counteroffer", "counter offer", "closing disclosure",
+    )),
+    ("internal", (
+        "team meeting", "our brokerage", "internal", "office", "staff",
+    )),
+]
+
+
+def normalize_category(value) -> str | None:
+    """Coerce model output like 'Lead', 'Customers', 'FINANCE' to a valid category."""
+    if value is None:
+        return None
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if key in CATEGORIES:
+        return key
+    if key in _ALIASES:
+        return _ALIASES[key]
+    for category in CATEGORIES:
+        if category in key:
+            return category
+    return None
+
+
+def fallback_category(email: dict) -> str:
+    """Deterministic keyword classifier used when the LLM is unavailable.
+
+    Guarantees every email lands in a section so the inbox keeps separating
+    mail even during provider outages or rate limits.
+    """
+    text = " ".join(
+        [
+            str(email.get("subject", "")),
+            str(email.get("from_addr", "")),
+            str(email.get("body", ""))[:4000],
+        ]
+    ).lower()
+    for category, keywords in _KEYWORDS:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return "internal"
+
+
 def classify_email(email: dict, llm=None) -> dict:
     """Return {"category": one of CATEGORIES} for a cleaned email."""
     llm = with_llm(llm)

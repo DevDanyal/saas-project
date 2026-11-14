@@ -74,6 +74,22 @@ def test_categorizer():
     assert out["category"] == "lead"
 
 
+def test_categorizer_normalizes_model_variants():
+    assert categorizer.normalize_category("Lead") == "lead"
+    assert categorizer.normalize_category("Customers") == "client"
+    assert categorizer.normalize_category("FINANCE") == "financial"
+    assert categorizer.normalize_category("sellers") == "client"
+    assert categorizer.normalize_category("not-a-category") is None
+
+
+def test_categorizer_fallback_keywords():
+    assert categorizer.fallback_category({"subject": "You won a prize"}) == "spam"
+    assert categorizer.fallback_category({"subject": "Monthly market report", "body": "unsubscribe"}) == "newsletter"
+    assert categorizer.fallback_category({"body": "Our mortgage pre-approval is ready"}) == "financial"
+    assert categorizer.fallback_category({"body": "Can we schedule a showing?"}) == "lead"
+    assert categorizer.fallback_category({"body": "random chatter"}) == "internal"
+
+
 def test_sentiment():
     out = sentiment.analyze_sentiment(EMAIL, llm=FakeLlm(by_keyword={"positive": sentiment_resp}))
     assert out["mood"] == "positive"
@@ -172,6 +188,36 @@ async def test_pipeline_persists_all_outputs(db):
 
 
 @pytest.mark.asyncio
+async def test_pipeline_stores_action_due_as_datetime(db):
+    user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-due", "Closing")
+    email = await crud.insert_email(
+        db, thread.id, "msg-due", EMAIL["from_addr"], EMAIL["to_addr"],
+        EMAIL["subject"], EMAIL["body"], datetime.now(timezone.utc),
+    )
+    fake = build_fake()
+    fake._by_keyword["Extract every action"] = {
+        "actions": [
+            {
+                "type": "calendar",
+                "description": "Schedule closing walkthrough",
+                "due": "2026-10-01",
+                "contact": "buyer@example.com",
+                "property": "12 Lake Rd",
+            }
+        ]
+    }
+
+    await pipeline.process_email(db, email.id, llm=fake)
+
+    item = (await db.execute(
+        select(models.ActionItem).where(models.ActionItem.email_id == email.id)
+    )).scalar_one()
+    assert isinstance(item.due, datetime)
+    assert item.due.date().isoformat() == "2026-10-01"
+
+
+@pytest.mark.asyncio
 async def test_pipeline_reprocessing_is_idempotent(db):
     user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
     thread = await crud.upsert_thread(db, user.id, "ext-thread-idem", "Looking near the lake")
@@ -239,6 +285,69 @@ async def test_pipeline_skips_drafts_for_spam(db):
     assert result["category"] == "spam"
     assert result["drafts_created"] == 0
     assert result["actions_created"] == 0
+
+
+@pytest.mark.asyncio
+async def test_pipeline_survives_llm_outage(db):
+    """A provider outage must still group the email and persist a summary."""
+    def boom(system, user, temperature=0.2, max_tokens=2048):
+        raise RuntimeError("provider down")
+
+    user = await crud.get_or_create_user(db, "Agent", "agent@example.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-outage", "Mortgage pre-approval")
+    email = await crud.insert_email(
+        db, thread.id, "msg-outage", "loan@example.com", "agent@example.com",
+        "Mortgage pre-approval", "Your loan is pre-approved, closing soon.",
+        datetime.now(timezone.utc),
+    )
+
+    result = await pipeline.process_email(db, email.id, llm=boom)
+
+    assert result["category"] == "financial"
+    await db.refresh(thread)
+    await db.refresh(email)
+    assert thread.category == models.CategoryType.financial
+    assert email.ai_summary
+
+
+def test_parse_due_handles_model_strings():
+    from datetime import datetime, timezone
+
+    assert pipeline._parse_due("") is None
+    assert pipeline._parse_due(None) is None
+    assert pipeline._parse_due("not a date") is None
+    assert pipeline._parse_due("2026-09-22") == datetime(2026, 9, 22, tzinfo=timezone.utc)
+    assert pipeline._parse_due("2026-09-22T15:30:00Z") == datetime(
+        2026, 9, 22, 15, 30, tzinfo=timezone.utc
+    )
+    assert pipeline._parse_due("09/22/2026") == datetime(2026, 9, 22, tzinfo=timezone.utc)
+    assert pipeline._parse_due("September 22, 2026") == datetime(
+        2026, 9, 22, tzinfo=timezone.utc
+    )
+
+
+def test_clean_actions_coerces_and_drops_bad_items():
+    cleaned = pipeline._clean_actions(
+        [
+            {
+                "type": "call",
+                "description": None,
+                "due": "banana",
+                "contact": 123,
+                "property": {"x": 1},
+            },
+            {"type": "bogus", "description": "ignore me"},
+            "not-an-object",
+            None,
+        ]
+    )
+    assert len(cleaned) == 1
+    action = cleaned[0]
+    assert action["type"] == "call"
+    assert action["description"] == ""
+    assert action["due"] is None
+    assert action["contact"] == "123"
+    assert action["property"] == "{'x': 1}"
 
 
 def test_autopilot_sends_low_risk_when_enabled():

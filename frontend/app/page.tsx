@@ -17,6 +17,7 @@ import { useUser } from "@/lib/user-context";
 
 const SECTIONS: { key: string; label: string }[] = [
   { key: "", label: "All Mail" },
+  { key: "unread", label: "Unread" },
   { key: "client", label: "Customers" },
   { key: "lead", label: "Leads" },
   { key: "vendor", label: "Vendors" },
@@ -91,7 +92,8 @@ export default function InboxPage() {
     let cancelled = false;
     const params = new URLSearchParams({ limit: "100", sort, order });
     if (debouncedQuery) params.set("q", debouncedQuery);
-    if (category) params.set("category", category);
+    if (category === "unread") params.set("unread", "true");
+    else if (category) params.set("category", category);
     if (flag) params.set("flag", flag);
     if (minPriority) params.set("min_priority", minPriority);
     (async () => {
@@ -185,10 +187,22 @@ export default function InboxPage() {
       </div>
     );
 
-  const sectionCount = (key: string) =>
-    key === "" ? (stats?.total ?? 0) : (stats?.categories?.[key] ?? 0);
+  const unreadFromThreads = (threads ?? []).filter((t) => (t.unread ?? 0) > 0).length;
+  const sectionCount = (key: string) => {
+    if (key === "") return stats?.total ?? 0;
+    if (key === "unread") {
+      return Math.max(stats?.unread ?? 0, unreadFromThreads);
+    }
+    return stats?.categories?.[key] ?? 0;
+  };
   const sectionLabel =
     SECTIONS.find((s) => s.key === category)?.label ?? "All Mail";
+  const visibleSections = SECTIONS.filter(
+    (s) =>
+      s.key === "" ||
+      sectionCount(s.key) > 0 ||
+      category === s.key,
+  );
 
   return (
     <div>
@@ -220,7 +234,7 @@ export default function InboxPage() {
       </div>
 
       <div className="section-tabs" role="tablist" aria-label="Inbox sections">
-        {SECTIONS.map((s) => (
+        {visibleSections.map((s) => (
           <button
             key={s.key || "all"}
             role="tab"
@@ -304,7 +318,10 @@ export default function InboxPage() {
                 <span className={`score ${scoreClass(t.priority_score)}`}>
                   {t.priority_score ?? "–"}
                 </span>
-                <span className="subject">{t.subject || "(no subject)"}</span>
+                <span className="subject">
+                  {t.unread > 0 && <span className="unread-dot" />}
+                  {t.subject || "(no subject)"}
+                </span>
                 <CategoryChip category={t.category} />
                 <ReplyStatusChip status={t.reply_status} />
                 {t.flags?.slice(0, 2).map((f) => (
@@ -313,6 +330,12 @@ export default function InboxPage() {
               </div>
               <div className="meta">
                 <span>{plural(t.emails, "email")}</span>
+                {t.unread > 0 && (
+                  <>
+                    <span>·</span>
+                    <span className="unread-count">{plural(t.unread, "unread")}</span>
+                  </>
+                )}
                 {t.last_from && (
                   <>
                     <span>·</span>

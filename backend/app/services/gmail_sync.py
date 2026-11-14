@@ -127,7 +127,14 @@ async def sync_user_inbox(
                 mid = msg.get("id")
                 if not mid:
                     continue
-                if await crud.get_email_by_message_id(db, mid) is not None:
+                labels = msg.get("labelIds") or []
+                is_read = "UNREAD" not in labels
+                existing = await crud.get_email_by_message_id(db, mid)
+                if existing is not None:
+                    # We only have gmail.readonly, so never resurrect locally
+                    # read mail. Fold in the gmail-unread -> read direction.
+                    if is_read and not existing.is_read:
+                        existing.is_read = True
                     stats["emails_skipped"] += 1
                     continue
 
@@ -139,6 +146,7 @@ async def sync_user_inbox(
                     _header(msg, "Subject"), body,
                     _parse_date(_header(msg, "Date")),
                     has_attachment=_has_attachment(payload),
+                    is_read=is_read,
                 )
                 stats["emails_added"] += 1
 

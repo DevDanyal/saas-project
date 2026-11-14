@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+import math
+
 from app.agents import (
     action_extractor,
     auto_pilot,
@@ -18,7 +21,7 @@ def _clamp_score(value) -> int | None:
         return None
     try:
         return max(0, min(100, int(round(float(value)))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -33,6 +36,43 @@ def _fallback_summary(text: str) -> str:
     return sentence if sentence.endswith((".", "!", "?")) else sentence + "."
 
 
+def _parse_due(value) -> datetime | None:
+    """Coerce a model-supplied date string into a datetime for the DB column."""
+    if value is None or isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.replace("Z", "+00:00")
+    for parser in (
+        lambda t: datetime.fromisoformat(t),
+        lambda t: datetime.strptime(t, "%m/%d/%Y"),
+        lambda t: datetime.strptime(t, "%Y/%m/%d"),
+        lambda t: datetime.strptime(t, "%B %d, %Y"),
+        lambda t: datetime.strptime(t, "%b %d, %Y"),
+    ):
+        try:
+            parsed = parser(text)
+            break
+        except ValueError:
+            continue
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _safe_intensity(value) -> float:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if math.isnan(number) or math.isinf(number):
+        return 0.0
+    return max(0.0, min(1.0, number))
+
+
 def _clean_actions(raw: list | None) -> list[dict]:
     allowed = set(action_extractor.ACTION_TYPES)
     cleaned = []
@@ -44,10 +84,10 @@ def _clean_actions(raw: list | None) -> list[dict]:
         cleaned.append(
             {
                 "type": item["type"],
-                "description": str(item.get("description", ""))[:2000],
-                "due": item.get("due") or None,
-                "contact": item.get("contact") or None,
-                "property": item.get("property") or None,
+                "description": str(item.get("description") or "")[:2000],
+                "due": _parse_due(item.get("due")),
+                "contact": (str(item["contact"])[:255] if item.get("contact") else None),
+                "property": (str(item["property"])[:255] if item.get("property") else None),
             }
         )
     return cleaned
@@ -77,37 +117,64 @@ async def process_email(db, email_id, llm=None) -> dict:
         "has_attachment": email.has_attachment,
     }
 
-    read = reader.read_email(email_dict, llm=llm)
+    # A single provider outage must not wipe out an email's grouping. Track
+    # whether the LLM is reachable and fall back to deterministic logic.
+    llm_down = False
+    try:
+        read = reader.read_email(email_dict, llm=llm)
+    except Exception:
+        read = {}
+        llm_down = True
     clean = dict(email_dict)
     if read.get("body_clean"):
         clean["body"] = read["body_clean"]
     summary_value = (read.get("summary") or "").strip() or _fallback_summary(
         clean.get("body", "")
     )
+    if not summary_value:
+        summary_value = _fallback_summary(clean.get("subject", ""))
 
-    cat = categorizer.classify_email(clean, llm=llm)
-    category_name = (
-        cat.get("category")
-        if cat.get("category") in categorizer.CATEGORIES
-        else None
-    )
+    category_name = None
+    if not llm_down:
+        try:
+            cat = categorizer.classify_email(clean, llm=llm)
+            category_name = categorizer.normalize_category(cat.get("category"))
+        except Exception:
+            llm_down = True
+    if category_name is None:
+        category_name = categorizer.fallback_category(clean)
 
-    sent = sentiment.analyze_sentiment(clean, llm=llm)
-    sentiment_value = {
-        "mood": sent.get("mood", "neutral"),
-        "intensity": float(sent.get("intensity", 0.0) or 0),
-        "warning": bool(sent.get("warning", False)),
-    }
+    sentiment_value = {"mood": "neutral", "intensity": 0.0, "warning": False}
+    if not llm_down:
+        try:
+            sent = sentiment.analyze_sentiment(clean, llm=llm)
+            sentiment_value = {
+                "mood": str(sent.get("mood", "neutral"))[:32],
+                "intensity": _safe_intensity(sent.get("intensity")),
+                "warning": bool(sent.get("warning", False)),
+            }
+        except Exception:
+            pass
 
-    prio = prioritizer.score_email(
-        clean, category_name or "unknown", sentiment=sentiment_value, llm=llm
-    )
+    prio: dict = {}
+    if not llm_down:
+        try:
+            prio = prioritizer.score_email(
+                clean, category_name or "unknown", sentiment=sentiment_value, llm=llm
+            )
+        except Exception:
+            prio = {}
 
     is_noise = category_name in ("spam", "newsletter")
 
     actions_raw = None
-    if not is_noise:
-        actions_raw = action_extractor.extract_actions(clean, category_name or "unknown", llm=llm)
+    if not is_noise and not llm_down:
+        try:
+            actions_raw = action_extractor.extract_actions(
+                clean, category_name or "unknown", llm=llm
+            )
+        except Exception:
+            actions_raw = None
 
     allowed_flags = set(prioritizer.FLAGS)
     clean_flags = [f for f in (prio.get("flags") or []) if f in allowed_flags]
@@ -128,7 +195,7 @@ async def process_email(db, email_id, llm=None) -> dict:
 
     drafts = []
     auto_decision = None
-    if not is_noise:
+    if not is_noise and not llm_down:
         tone_profile = prefs.tone_profile if prefs else None
         rules = prefs.rules if prefs else None
         thread_dicts = [
@@ -140,30 +207,38 @@ async def process_email(db, email_id, llm=None) -> dict:
             }
             for m in thread_emails
         ]
-        reply = reply_drafter.draft_reply(
-            thread_dicts, tone_profile=tone_profile, rules=rules, llm=llm
-        )
+        try:
+            reply = reply_drafter.draft_reply(
+                thread_dicts, tone_profile=tone_profile, rules=rules, llm=llm
+            )
+        except Exception:
+            reply = {}
         if reply.get("reply_text"):
             existing_draft = await crud.get_draft_for_email(db, email.id)
             is_new = existing_draft is None
             needs_decision = is_new or existing_draft.status == models.DraftStatus.draft
+            draft_text = str(reply.get("reply_text")).strip()
+            draft_tone = str(reply.get("suggested_tone") or "")[:64]
             if needs_decision:
-                auto_decision = auto_pilot.decide(
-                    email=clean,
-                    category=category_name,
-                    sentiment=sentiment_value,
-                    priority_score=thread.priority_score,
-                    draft_text=reply["reply_text"],
-                    preferences=auto_features,
-                    llm=llm,
-                )
+                try:
+                    auto_decision = auto_pilot.decide(
+                        email=clean,
+                        category=category_name,
+                        sentiment=sentiment_value,
+                        priority_score=thread.priority_score,
+                        draft_text=draft_text,
+                        preferences=auto_features,
+                        llm=llm,
+                    )
+                except Exception:
+                    auto_decision = None
 
             if is_new:
                 draft = await crud.add_draft(
                     db,
                     email.id,
-                    reply["reply_text"],
-                    tone=reply.get("suggested_tone", ""),
+                    draft_text,
+                    tone=draft_tone,
                     auto_decision=auto_decision,
                 )
                 drafts.append(draft.id)
@@ -173,8 +248,8 @@ async def process_email(db, email_id, llm=None) -> dict:
                 # Re-processing must not create duplicates. Refresh an
                 # unsent draft in place and leave sent drafts untouched.
                 if existing_draft.status == models.DraftStatus.draft:
-                    existing_draft.text = reply["reply_text"]
-                    existing_draft.tone = reply.get("suggested_tone", "")
+                    existing_draft.text = draft_text
+                    existing_draft.tone = draft_tone
                     existing_draft.auto_decision = auto_decision
                     await db.flush()
     else:
@@ -190,15 +265,20 @@ async def process_email(db, email_id, llm=None) -> dict:
         if key in seen_actions:
             continue
         seen_actions.add(key)
-        item = await crud.add_action_item(
-            db,
-            email.id,
-            models.ActionType(a["type"]),
-            a["description"],
-            due=a["due"],
-            contact=a["contact"],
-            property=a["property"],
-        )
+        try:
+            async with db.begin_nested():
+                item = await crud.add_action_item(
+                    db,
+                    email.id,
+                    models.ActionType(a["type"]),
+                    a["description"],
+                    due=a["due"],
+                    contact=a["contact"],
+                    property=a["property"],
+                )
+        except Exception:
+            # A malformed action must not roll back the whole email.
+            continue
         actions.append(str(item.id))
 
     if not is_noise:
@@ -267,7 +347,7 @@ async def _maybe_notify(db, thread, email, sentiment_value: dict) -> None:
         db,
         thread.user_id,
         note_type,
-        title=thread.subject or "Email needs attention",
+        title=(thread.subject or "Email needs attention")[:255],
         body=email.ai_summary or thread.summary,
         thread_id=thread.id,
         email_id=email.id,

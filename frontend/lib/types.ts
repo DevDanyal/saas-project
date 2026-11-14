@@ -24,6 +24,7 @@ export type ThreadSummary = {
   reply_status: ReplyStatus;
   emails: number;
   email_count: number;
+  unread: number;
 };
 
 export type InboxStats = {
@@ -34,6 +35,7 @@ export type InboxStats = {
   leads: number;
   attention: number;
   pending_drafts: number;
+  unread: number;
   categories: Record<string, number>;
   reply_status: Record<string, number>;
 };
@@ -80,6 +82,7 @@ export type ThreadEmail = {
   ai_summary: string | null;
   sentiment: EmailSentiment | null;
   has_attachment: boolean;
+  is_read: boolean;
   draft: Draft | null;
   actions: ActionItem[];
 };

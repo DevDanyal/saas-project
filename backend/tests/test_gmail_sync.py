@@ -47,10 +47,11 @@ def _text_payload(text):
     }
 
 
-def _msg(mid, subject, frm, to, date, body, attachment=False):
+def _msg(mid, subject, frm, to, date, body, attachment=False, labels=None):
     payload = _text_payload(body)
     msg = {
         "id": mid,
+        "labelIds": labels or [],
         "payload": {
             "mimeType": "multipart/mixed",
             "headers": [
@@ -126,3 +127,45 @@ async def test_sync_raises_without_account(db):
     user = await crud.get_or_create_user(db, "Agent", "nobody@example.com")
     with pytest.raises(ValueError):
         await gmail_sync.sync_user_inbox(db, user.id, service=FakeGmail([], {}))
+
+
+@pytest.mark.asyncio
+async def test_sync_keeps_read_state_in_sync(db):
+    user = await crud.get_or_create_user(db, "Agent", "reader@example.com")
+    await crud.add_email_account(
+        db, user.id, models.ProviderType.gmail, "reader@example.com",
+        token_cache=json.dumps({"token": "fake"}),
+    )
+
+    thread_id = "thread-read"
+    unread = _msg(
+        "msg-unread", "New lead", "buyer@example.com", "reader@example.com",
+        "Sat, 20 Sep 2026 09:00:00 +0000", "Interested in a showing.",
+        labels=["UNREAD", "INBOX"],
+    )
+    fake = FakeGmail([{"id": thread_id}], {thread_id: {"id": thread_id, "messages": [unread]}})
+
+    await gmail_sync.sync_user_inbox(db, user.id, service=fake)
+    thread = (await crud.list_threads_for_user(db, user.id))[0]
+    email = (await crud.list_emails_for_thread(db, thread.id))[0]
+    assert email.is_read is False
+
+    # Same message, now read in Gmail: re-sync should update local state.
+    read = _msg(
+        "msg-unread", "New lead", "buyer@example.com", "reader@example.com",
+        "Sat, 20 Sep 2026 09:00:00 +0000", "Interested in a showing.",
+        labels=["INBOX"],
+    )
+    fake2 = FakeGmail([{"id": thread_id}], {thread_id: {"id": thread_id, "messages": [read]}})
+    stats = await gmail_sync.sync_user_inbox(db, user.id, service=fake2)
+
+    assert stats["emails_added"] == 0
+    await db.refresh(email)
+    assert email.is_read is True
+
+    # Locally read mail must not be resurrected from Gmail's UNREAD label,
+    # since we can't write labels back with gmail.readonly.
+    again = FakeGmail([{"id": thread_id}], {thread_id: {"id": thread_id, "messages": [unread]}})
+    await gmail_sync.sync_user_inbox(db, user.id, service=again)
+    await db.refresh(email)
+    assert email.is_read is True

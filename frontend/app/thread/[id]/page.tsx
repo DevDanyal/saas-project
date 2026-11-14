@@ -39,13 +39,39 @@ export default function ThreadPage() {
     setOpenIds(new Set([sorted[sorted.length - 1].id]));
   }, [thread]);
 
+  const markRead = useCallback(async (emailId: string, read: boolean) => {
+    setThread((prev) =>
+      prev
+        ? {
+            ...prev,
+            unread: prev.emails.filter((e) =>
+              e.id === emailId ? !read : !e.is_read,
+            ).length,
+            emails: prev.emails.map((e) =>
+              e.id === emailId ? { ...e, is_read: read } : e,
+            ),
+          }
+        : prev,
+    );
+    try {
+      await patch(`/emails/${emailId}/read`, { is_read: read });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   function toggleEmail(emailId: string) {
+    const opening = !openIds.has(emailId);
     setOpenIds((prev) => {
       const next = new Set(prev);
-      if (next.has(emailId)) next.delete(emailId);
-      else next.add(emailId);
+      if (opening) next.add(emailId);
+      else next.delete(emailId);
       return next;
     });
+    if (opening) {
+      const target = thread?.emails.find((e) => e.id === emailId);
+      if (target && !target.is_read) void markRead(emailId, true);
+    }
   }
 
   const reload = useCallback(() => {
@@ -157,7 +183,10 @@ export default function ThreadPage() {
                 onClick={() => toggleEmail(email.id)}
               >
                 <span className="email-avatar">{initial}</span>
-                <span className="email-sender">{sender}</span>
+                <span className={`email-sender ${email.is_read ? "" : "unread"}`}>
+                  {!email.is_read && <span className="unread-dot" />}
+                  {sender}
+                </span>
                 <span className="email-snippet">{summary || "(no preview)"}</span>
                 <span className="time">
                   {formatTime(email.received_at)}
@@ -167,6 +196,17 @@ export default function ThreadPage() {
 
               {open && (
                 <div className="email-expanded">
+                  <div className="email-expanded-head">
+                    <span className="email-to">to {email.to_addr || "me"}</span>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => void markRead(email.id, !email.is_read)}
+                    >
+                      {email.is_read ? "Mark unread" : "Mark read"}
+                    </button>
+                  </div>
+
                   {summary ? (
                     <div className="ai-box email-summary">
                       <div className="label">

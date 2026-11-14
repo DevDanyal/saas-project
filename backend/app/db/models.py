@@ -159,6 +159,7 @@ class Email(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     sentiment: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     has_attachment: Mapped[bool] = mapped_column(default=False)
+    is_read: Mapped[bool] = mapped_column(default=False)
 
     thread: Mapped[Thread] = relationship(back_populates="emails")
     drafts: Mapped[list["AiDraft"]] = relationship(back_populates="email")

@@ -99,6 +99,31 @@ async def test_action_items_endpoint(ctx):
 
 
 @pytest.mark.asyncio
+async def test_mark_email_read_updates_unread_section(ctx):
+    client, user, thread = ctx
+    detail = (await client.get(f"/emails/threads/{thread.id}")).json()
+    email_id = detail["emails"][0]["id"]
+
+    stats = (await client.get(f"/emails/stats/{user.id}")).json()
+    assert stats["unread"] == 1
+
+    r = await client.patch(f"/emails/{email_id}/read", json={"is_read": True})
+    assert r.status_code == 200
+    assert r.json()["is_read"] is True
+
+    stats = (await client.get(f"/emails/stats/{user.id}")).json()
+    assert stats["unread"] == 0
+    unread = (await client.get(f"/emails/inbox/{user.id}?unread=true")).json()
+    assert unread["threads"] == []
+
+    r = await client.patch(f"/emails/{email_id}/read", json={"is_read": False})
+    assert r.json()["is_read"] is False
+    unread = (await client.get(f"/emails/inbox/{user.id}?unread=true")).json()
+    assert len(unread["threads"]) == 1
+    assert unread["threads"][0]["unread"] == 1
+
+
+@pytest.mark.asyncio
 async def test_thread_404(ctx):
     client, _, _ = ctx
     r = await client.get(f"/emails/threads/{uuid.uuid4()}")

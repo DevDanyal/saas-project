@@ -158,6 +158,7 @@ async def insert_email(
     has_attachment: bool = False,
     ai_summary: str | None = None,
     sentiment: dict | None = None,
+    is_read: bool = False,
 ) -> models.Email:
     email = models.Email(
         thread_id=thread_id,
@@ -170,6 +171,7 @@ async def insert_email(
         has_attachment=has_attachment,
         ai_summary=ai_summary,
         sentiment=sentiment,
+        is_read=is_read,
     )
     db.add(email)
     await db.flush()
