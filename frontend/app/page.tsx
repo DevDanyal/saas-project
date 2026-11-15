@@ -247,8 +247,8 @@ export default function InboxPage() {
   ];
 
   return (
-    <div className="dashboard-grid">
-      <div className="dashboard-left">
+    <div className="dashboard-grid grid w-full grid-cols-[1fr_360px] gap-6">
+      <div className="dashboard-left flex-1 min-w-0">
         <div className="kpi-grid">
           {kpis.map((k) => (
             <div key={k.label} className="kpi-card">
@@ -333,13 +333,13 @@ export default function InboxPage() {
             <table className="inbox-table">
               <thead>
                 <tr>
-                  <th className="col-check"><input type="checkbox" aria-label="Select all" /></th>
-                  <th className="col-sender">Sender</th>
+                  <th className="col-check w-10"><input type="checkbox" aria-label="Select all" /></th>
+                  <th className="col-sender w-44">Sender</th>
                   <th className="col-subject">Subject</th>
-                  <th className="col-labels">Labels</th>
-                  <th className="col-priority">Priority</th>
-                  <th className="col-time">Time</th>
-                  <th className="col-actions">Actions</th>
+                  <th className="col-labels w-28">Labels</th>
+                  <th className="col-priority w-20">Priority</th>
+                  <th className="col-time w-20">Time</th>
+                  <th className="col-actions w-32 shrink-0">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,38 +350,38 @@ export default function InboxPage() {
                   const p = priorityLabel(t.priority_score);
                   return (
                     <tr key={t.id}>
-                      <td className="col-check"><input type="checkbox" aria-label={`Select ${t.subject || "thread"}`} /></td>
-                      <td className="col-sender">
+                      <td className="col-check w-10"><input type="checkbox" aria-label={`Select ${t.subject || "thread"}`} /></td>
+                      <td className="col-sender w-44">
                         <Link href={`/thread/${t.id}`} className="sender-cell" style={{ textDecoration: "none", color: "inherit" }}>
                           <span className="sender-avatar">{initial}</span>
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div className="sender-name" title={name}>{t.unread > 0 && <span className="unread-dot" style={{ marginRight: 6 }} />}{name}</div>
-                            <div className="sender-sub" title={sender}>{t.category ?? "inbox"}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="sender-name truncate" title={name}>{t.unread > 0 && <span className="unread-dot" style={{ marginRight: 6 }} />}{name}</div>
+                            <div className="sender-sub truncate" title={sender}>{t.category ?? "inbox"}</div>
                           </div>
                         </Link>
                       </td>
                       <td className="col-subject">
-                        <Link href={`/thread/${t.id}`} className="subject-wrap" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-                          <div className="subject-main" title={t.subject || "(no subject)"}>{t.subject || "(no subject)"}</div>
-                          <div className="subject-meta">{t.last_from ? `From ${t.last_from}` : "Conversation"}</div>
-                          {t.summary && <div className="subject-summary">{t.summary}</div>}
+                        <Link href={`/thread/${t.id}`} className="subject-wrap block min-w-0" style={{ textDecoration: "none", color: "inherit" }}>
+                          <div className="subject-main truncate" title={t.subject || "(no subject)"}>{t.subject || "(no subject)"}</div>
+                          <div className="subject-meta truncate">{t.last_from ? `From ${t.last_from}` : "Conversation"}</div>
+                          {t.summary && <div className="subject-summary line-clamp-2">{t.summary}</div>}
                         </Link>
                       </td>
-                      <td className="col-labels">
+                      <td className="col-labels w-28">
                         <div className="label-stack">
                           {t.category === "spam" ? <span className="pill gray">Spam</span> : <CategoryChip category={t.category} />}
                           <span className="pill purple">AI Assessed</span>
                         </div>
                       </td>
-                      <td className="col-priority">
+                      <td className="col-priority w-20">
                         <span className={p.cls}>{p.text}</span>
                       </td>
-                      <td className="col-time"><div className="time-cell">{formatCellTime(t.last_activity_at)}</div></td>
-                      <td className="col-actions">
+                      <td className="col-time w-20"><div className="time-cell whitespace-normal">{formatCellTime(t.last_activity_at)}</div></td>
+                      <td className="col-actions w-32 shrink-0">
                         <div className="action-stack">
-                          <Link href={`/thread/${t.id}`} className="btn btn-navy btn-sm btn-block"><Reply size={13} /> Reply</Link>
-                          <button type="button" className="btn btn-outline btn-sm btn-block" disabled={busyThread === t.id} onClick={() => void markSpam(t.id)}>Mark as Spam</button>
-                          <button type="button" className="btn btn-outline btn-sm btn-block" disabled={busyThread === t.id} onClick={() => void setPriority(t.id, (t.priority_score ?? 0) >= 80 ? 40 : 90)}>
+                          <Link href={`/thread/${t.id}`} className="btn btn-navy btn-sm btn-block rounded-lg"><Reply size={13} /> Reply</Link>
+                          <button type="button" className="btn btn-outline btn-sm btn-block rounded-lg border-[#E2E8F0]" disabled={busyThread === t.id} onClick={() => void markSpam(t.id)}>Mark as Spam</button>
+                          <button type="button" className="btn btn-outline btn-sm btn-block rounded-lg border-[#E2E8F0]" disabled={busyThread === t.id} onClick={() => void setPriority(t.id, (t.priority_score ?? 0) >= 80 ? 40 : 90)}>
                             Set Priority <ChevronDown size={13} />
                           </button>
                         </div>
@@ -395,7 +395,7 @@ export default function InboxPage() {
         </div>
       </div>
 
-      <aside className="assistant-panel">
+      <aside className="assistant-panel w-[360px] shrink-0">
         <div className="panel-card">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div className="sync-status"><span className="dot-green" /> Synced 2m ago</div>
@@ -427,7 +427,7 @@ export default function InboxPage() {
             ))}
           </div>
 
-          <div className="email-preview">
+          <div className="email-preview p-4">
             <div className="row"><span className="k">Sender:</span> {draftThread?.last_from?.split("<")[0].trim() || "—"}</div>
             <div className="row"><span className="k">From:</span> {draftThread?.last_from || "—"}</div>
             <div className="row"><span className="k">Re:</span> {draftThread?.subject || "(no subject)"}</div>
@@ -436,12 +436,13 @@ export default function InboxPage() {
             <div className="row" style={{ color: "var(--muted)", marginTop: 4 }}>{draftThread?.summary ? draftThread.summary.slice(0, 160) : "Open a thread to preview the AI draft."}</div>
           </div>
 
-          <div className="collapsible" style={{ marginTop: 12 }}>
-            <button type="button" className="collapsible-head" onClick={() => setOpenDrafts((v) => !v)}>
-              Drafts in progress <ChevronRight size={15} style={{ transform: openDrafts ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+          <div className="panel-card p-0 mt-3 overflow-hidden" style={{ padding: 0, marginTop: 12 }}>
+            <button type="button" className="collapsible-head w-full" onClick={() => setOpenDrafts((v) => !v)}>
+              <span>Drafts in progress</span>
+              <ChevronRight size={15} style={{ transform: openDrafts ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
             </button>
             {openDrafts && (
-              <div className="collapsible-body" style={{ paddingTop: 8 }}>
+              <div className="collapsible-body" style={{ paddingTop: 0, paddingBottom: 12 }}>
                 <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
                   {repliesReady > 0 ? `${repliesReady} draft${repliesReady === 1 ? "" : "s"} in progress` : "No drafts in progress"}
                 </div>
