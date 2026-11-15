@@ -26,6 +26,7 @@ type UserContextValue = {
   markRead: (id: string) => Promise<void>;
   busy: boolean;
   dataVersion: number;
+  refreshData: () => void;
   error: string | null;
 };
 
@@ -127,16 +128,29 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!activeId) return;
-    const refresh = () => {
+    const refreshNotifications = () => {
       loadNotifications().catch(() => {});
     };
-    const timer = window.setInterval(refresh, 30000);
-    window.addEventListener("focus", refresh);
+    const refreshAll = () => {
+      refreshNotifications();
+      setDataVersion((v) => v + 1);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshAll();
+    };
+    const timer = window.setInterval(refreshNotifications, 30000);
+    window.addEventListener("focus", refreshAll);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshAll);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [activeId, loadNotifications]);
+
+  const refreshData = useCallback(() => {
+    setDataVersion((v) => v + 1);
+  }, []);
 
   const syncInbox = useCallback(async () => {
     if (!activeId) throw new Error("Not signed in");
@@ -196,6 +210,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         markRead,
         busy,
         dataVersion,
+        refreshData,
         error,
       }}
     >

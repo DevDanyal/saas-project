@@ -55,11 +55,11 @@ reply_resp = {
 auto_pilot_resp = {"send": True, "confidence": 0.97, "reason": "Low-risk vendor reply."}
 
 
-def build_fake():
+def build_fake(category: str = "lead"):
     return FakeLlm(
         by_keyword={
             "Normalize this raw email": read_resp,
-            "Classify this email thread": {"category": "lead"},
+            "Classify this email thread": {"category": category},
             "assess the writer's sentiment": sentiment_resp,
             "Scoring order": priority_resp,
             "Extract every action": actions_resp,
@@ -87,7 +87,25 @@ def test_categorizer_fallback_keywords():
     assert categorizer.fallback_category({"subject": "Monthly market report", "body": "unsubscribe"}) == "newsletter"
     assert categorizer.fallback_category({"body": "Our mortgage pre-approval is ready"}) == "financial"
     assert categorizer.fallback_category({"body": "Can we schedule a showing?"}) == "lead"
-    assert categorizer.fallback_category({"body": "random chatter"}) == "internal"
+    assert categorizer.fallback_category({"body": "random chatter"}) == "lead"
+    assert (
+        categorizer.fallback_category(
+            {"body": "hi danyal i want a professional webbsite for my bisuness"}
+        )
+        == "lead"
+    )
+
+
+def test_sender_is_external():
+    assert categorizer.sender_is_external(
+        "Aidevdanyal <aidevdanyal@gmail.com>", "devdanyal9@gmail.com"
+    )
+    assert not categorizer.sender_is_external(
+        "colleague@brokerage.com", "agent@brokerage.com"
+    )
+    assert not categorizer.sender_is_external(
+        "agent@gmail.com", "agent@gmail.com"
+    )
 
 
 def test_sentiment():
@@ -185,6 +203,45 @@ async def test_pipeline_persists_all_outputs(db):
     # scores are clamped to 0-100
     assert pipeline._clamp_score(250) == 100
     assert pipeline._clamp_score(-5) == 0
+
+
+@pytest.mark.asyncio
+async def test_pipeline_moves_external_internal_mail_to_leads(db):
+    user = await crud.get_or_create_user(db, "Agent", "devdanyal9@gmail.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-web", "website")
+    email = await crud.insert_email(
+        db, thread.id, "msg-web",
+        "Aidevdanyal <aidevdanyal@gmail.com>", "devdanyal9@gmail.com",
+        "website for my bisuness",
+        "hi danyal i want a professional webbsite for my bisuness can u make for me ?",
+        datetime.now(timezone.utc),
+    )
+
+    result = await pipeline.process_email(
+        db, email.id, llm=build_fake(category="internal")
+    )
+
+    assert result["category"] == "lead"
+    await db.refresh(thread)
+    assert thread.category == models.CategoryType.lead
+
+
+@pytest.mark.asyncio
+async def test_pipeline_keeps_same_domain_team_mail_internal(db):
+    user = await crud.get_or_create_user(db, "Agent", "agent@brokerage.com")
+    thread = await crud.upsert_thread(db, user.id, "ext-thread-team", "Team")
+    email = await crud.insert_email(
+        db, thread.id, "msg-team", "colleague@brokerage.com", "agent@brokerage.com",
+        "Team meeting", "Team meeting moved to 10am.", datetime.now(timezone.utc),
+    )
+
+    result = await pipeline.process_email(
+        db, email.id, llm=build_fake(category="internal")
+    )
+
+    assert result["category"] == "internal"
+    await db.refresh(thread)
+    assert thread.category == models.CategoryType.internal
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -29,15 +30,27 @@ class _Threads:
         return _Resp(self._details[kwargs["id"]])
 
 
+class _Messages:
+    def __init__(self, read_ids):
+        self._read_ids = read_ids
+
+    def list(self, **kwargs):
+        return _Resp({"messages": [{"id": mid} for mid in self._read_ids]})
+
+
 class FakeGmail:
-    def __init__(self, items, details):
+    def __init__(self, items, details, read_ids=None):
         self._threads = _Threads(items, details)
+        self._messages = _Messages(read_ids or [])
 
     def users(self):
         return self
 
     def threads(self):
         return self._threads
+
+    def messages(self):
+        return self._messages
 
 
 def _text_payload(text):
@@ -169,3 +182,27 @@ async def test_sync_keeps_read_state_in_sync(db):
     await gmail_sync.sync_user_inbox(db, user.id, service=again)
     await db.refresh(email)
     assert email.is_read is True
+
+
+@pytest.mark.asyncio
+async def test_sync_folds_gmail_read_state_for_older_threads(db):
+    user = await crud.get_or_create_user(db, "Agent", "reads@example.com")
+    await crud.add_email_account(
+        db, user.id, models.ProviderType.gmail, "reads@example.com",
+        token_cache=json.dumps({"token": "fake"}),
+    )
+    thread = await crud.upsert_thread(db, user.id, "thread-old", "Old mail")
+    email = await crud.insert_email(
+        db, thread.id, "msg-old", "buyer@example.com", "reads@example.com",
+        "Old mail", "Read in Gmail later.", datetime.now(timezone.utc),
+        is_read=False,
+    )
+
+    # The message is no longer in the recent thread page, but Gmail reports
+    # it as read, so the local row must follow.
+    fake = FakeGmail([], {}, read_ids=["msg-old"])
+    stats = await gmail_sync.sync_user_inbox(db, user.id, service=fake)
+
+    await db.refresh(email)
+    assert email.is_read is True
+    assert stats["marked_read"] == 1

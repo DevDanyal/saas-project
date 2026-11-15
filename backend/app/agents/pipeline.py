@@ -103,6 +103,8 @@ async def process_email(db, email_id, llm=None) -> dict:
     if email is None:
         raise ValueError("Email not found")
     thread = await db.get(models.Thread, email.thread_id)
+    owner = await crud.get_user(db, thread.user_id)
+    account_email = owner.email if owner else None
 
     thread_emails = await crud.list_emails_for_thread(db, thread.id)
     thread_emails.sort(key=lambda m: m.received_at)
@@ -137,12 +139,20 @@ async def process_email(db, email_id, llm=None) -> dict:
     category_name = None
     if not llm_down:
         try:
-            cat = categorizer.classify_email(clean, llm=llm)
+            cat = categorizer.classify_email(
+                clean, llm=llm, account_email=account_email
+            )
             category_name = categorizer.normalize_category(cat.get("category"))
         except Exception:
             llm_down = True
     if category_name is None:
         category_name = categorizer.fallback_category(clean)
+    if category_name == "internal" and categorizer.sender_is_external(
+        email.from_addr, account_email
+    ):
+        # A customer/prospect on a personal address is never "internal", even
+        # if the model (or a broad keyword) said so.
+        category_name = "lead"
 
     sentiment_value = {"mood": "neutral", "intensity": 0.0, "warning": False}
     if not llm_down:

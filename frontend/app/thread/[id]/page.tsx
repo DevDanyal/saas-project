@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CategoryChip, cleanEmailBody, FlagChip, HintChip, ReplyStatusChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
 import { get, patch, post } from "@/lib/api";
 import type { ThreadDetail } from "@/lib/types";
+import { useUser } from "@/lib/user-context";
 import { DraftBox } from "@/components/draft-box";
 
 const NOISE_CATEGORIES = new Set(["spam", "newsletter"]);
@@ -21,10 +22,12 @@ function summarize(body: string): string {
 
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
+  const { refreshData } = useUser();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [draftingId, setDraftingId] = useState<string | null>(null);
+  const [rerunning, setRerunning] = useState(false);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const openedOnce = useRef(false);
 
@@ -39,26 +42,37 @@ export default function ThreadPage() {
     setOpenIds(new Set([sorted[sorted.length - 1].id]));
   }, [thread]);
 
-  const markRead = useCallback(async (emailId: string, read: boolean) => {
-    setThread((prev) =>
-      prev
-        ? {
-            ...prev,
-            unread: prev.emails.filter((e) =>
-              e.id === emailId ? !read : !e.is_read,
-            ).length,
-            emails: prev.emails.map((e) =>
-              e.id === emailId ? { ...e, is_read: read } : e,
-            ),
-          }
-        : prev,
-    );
-    try {
-      await patch(`/emails/${emailId}/read`, { is_read: read });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
+  const reload = useCallback(() => {
+    get<ThreadDetail>(`/emails/threads/${id}`)
+      .then(setThread)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [id]);
+
+  const markRead = useCallback(
+    async (emailId: string, read: boolean) => {
+      setThread((prev) =>
+        prev
+          ? {
+              ...prev,
+              unread: prev.emails.filter((e) =>
+                e.id === emailId ? !read : !e.is_read,
+              ).length,
+              emails: prev.emails.map((e) =>
+                e.id === emailId ? { ...e, is_read: read } : e,
+              ),
+            }
+          : prev,
+      );
+      try {
+        await patch(`/emails/${emailId}/read`, { is_read: read });
+        refreshData();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        reload();
+      }
+    },
+    [refreshData, reload],
+  );
 
   function toggleEmail(emailId: string) {
     const opening = !openIds.has(emailId);
@@ -74,11 +88,27 @@ export default function ThreadPage() {
     }
   }
 
-  const reload = useCallback(() => {
-    get<ThreadDetail>(`/emails/threads/${id}`)
-      .then(setThread)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [id]);
+  const rerunAnalysis = useCallback(async () => {
+    if (!thread || thread.emails.length === 0) return;
+    const sorted = [...thread.emails].sort(
+      (a, b) =>
+        new Date(a.received_at ?? 0).getTime() -
+        new Date(b.received_at ?? 0).getTime(),
+    );
+    const latest = sorted[sorted.length - 1];
+    if (!latest) return;
+    setRerunning(true);
+    setError(null);
+    try {
+      await post(`/emails/process/${latest.id}`);
+      reload();
+      refreshData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRerunning(false);
+    }
+  }, [thread, reload, refreshData]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +173,14 @@ export default function ThreadPage() {
           {thread.flags?.map((f) => (
             <FlagChip key={f} flag={f} />
           ))}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => void rerunAnalysis()}
+            disabled={rerunning}
+          >
+            {rerunning ? "Re-running…" : "Re-run AI"}
+          </button>
         </div>
       </div>
 

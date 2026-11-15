@@ -105,7 +105,7 @@ async def sync_user_inbox(
         userId="me", maxResults=max_results
     ).execute()
 
-    stats = {"threads": 0, "emails_added": 0, "emails_skipped": 0, "errors": 0}
+    stats = {"threads": 0, "emails_added": 0, "emails_skipped": 0, "errors": 0, "marked_read": 0}
 
     for item in thread_result.get("threads", []):
         try:
@@ -153,6 +153,19 @@ async def sync_user_inbox(
             stats["threads"] += 1
         except Exception:
             stats["errors"] += 1
+
+    # Fold Gmail-side read transitions into local rows as well. This catches
+    # messages the user read in Gmail that fall outside the thread page above.
+    try:
+        read_result = service.users().messages().list(
+            userId="me", q="is:read newer_than:30d", maxResults=200
+        ).execute()
+        read_ids = [m.get("id") for m in read_result.get("messages", [])]
+        stats["marked_read"] = await crud.mark_emails_read_by_message_ids(
+            db, read_ids
+        )
+    except Exception:
+        pass
 
     await db.flush()
     return stats

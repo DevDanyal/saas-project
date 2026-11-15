@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -183,6 +183,24 @@ async def get_email_by_message_id(db: AsyncSession, message_id: str) -> models.E
         select(models.Email).where(models.Email.message_id == message_id)
     )
     return result.scalar_one_or_none()
+
+
+async def mark_emails_read_by_message_ids(
+    db: AsyncSession, message_ids: list[str]
+) -> int:
+    """Fold Gmail's read state into local rows without re-fetching threads."""
+    ids = [mid for mid in message_ids if mid]
+    if not ids:
+        return 0
+    result = await db.execute(
+        update(models.Email)
+        .where(
+            models.Email.message_id.in_(ids),
+            models.Email.is_read.is_(False),
+        )
+        .values(is_read=True)
+    )
+    return result.rowcount or 0
 
 
 async def add_draft(
