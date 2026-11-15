@@ -428,9 +428,9 @@ export default function InboxPage() {
 
         <div className="panel-card">
           <div className="panel-footer">
-            {draftThread ? <Link href={`/thread/${draftThread.id}`} className="btn btn-navy"><Send size={14} /> Reply</Link> : <button className="btn btn-navy" disabled><Send size={14} /> Reply</button>}
-            <button className="btn btn-outline" type="button"><Forward size={14} /> Forward</button>
-            <button className="btn btn-outline" type="button"><Archive size={14} /> Archive</button>
+            {draftThread ? <Link href={`/thread/${draftThread.id}`} className="btn btn-navy"><Send size={14} /> Reply</Link> : <button className="btn btn-navy" type="button" disabled><Send size={14} /> Reply</button>}
+            <Link href={draftThread ? `/thread/${draftThread.id}` : "/"} className="btn btn-outline"><Forward size={14} /> Forward</Link>
+            <Link href="/" className="btn btn-outline"><Archive size={14} /> Archive</Link>
           </div>
         </div>
       </aside>
