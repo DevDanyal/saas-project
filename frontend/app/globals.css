@@ -1115,7 +1115,7 @@ ul.section-list li {
 .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); }
 .search-wrap .tool-input { width: 100%; padding-left: 34px; padding-right: 54px; background: var(--surface); }
 .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--muted); background: var(--sunk); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
-.table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; max-width: 100%; }
 .inbox-table { width: 100%; min-width: 860px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .inbox-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 12px; background: #fbfcfe; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .inbox-table td { padding: 14px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
@@ -1202,7 +1202,17 @@ ul.section-list li {
   .toolbar-row { flex-direction: column; align-items: stretch; }
   .search-wrap { width: 100%; min-width: 0; }
   .toolbar-row .tool-select { width: 100%; }
-  .section-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .section-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
   .panel-footer { flex-direction: column; }
   .draft-approval { flex-direction: column; align-items: flex-start; }
+  .dashboard-left { overflow: visible; }
+  .table-card { border-radius: 14px; }
+  .inbox-table { min-width: 780px; }
+  .inbox-table th, .inbox-table td { padding: 12px 10px; }
+  .col-sender { width: 150px; }
+  .col-labels { width: 110px; }
+  .col-priority { width: 76px; }
+  .col-time { width: 86px; }
+  .col-actions { width: 140px; }
+  .assistant-panel { gap: 10px; }
 }
