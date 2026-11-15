@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
+import { Mail } from "lucide-react";
 
 import { useUser } from "@/lib/user-context";
-import { SyncBar } from "@/components/sync-bar";
 import { ConnectGmail } from "@/components/connect-gmail";
 import { AuthScreen } from "@/components/auth/auth-screen";
 
@@ -22,7 +22,7 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, authChecked, connectGmail, logout, unreadCount } = useUser();
+  const { user, authChecked, logout, unreadCount } = useUser();
 
   if (!authChecked) {
     return (
@@ -39,19 +39,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <AuthScreen />;
   }
 
+  const initial = (user.email?.match(/[A-Za-z0-9]/)?.[0] ?? "?").toUpperCase();
+
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          Smart <em>Inbox</em>
-        </div>
-        <div className="sidebar-eyebrow">Agent workspace</div>
-        <nav className="nav">
+    <div className="app">
+      <header className="topbar">
+        <Link href="/" className="topbar-brand">
+          <Mail size={18} />
+          Smart Inbox
+        </Link>
+        <nav className="topbar-tabs" aria-label="Primary">
           {NAV.map((n) => {
             const active =
               n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
             return (
-              <Link key={n.href} href={n.href} className={active ? "active" : ""}>
+              <Link
+                key={n.href}
+                href={n.href}
+                className={`topbar-tab ${active ? "active" : ""}`}
+              >
                 {n.label}
                 {n.href === "/alerts" && unreadCount > 0 && (
                   <span className="nav-count">{unreadCount}</span>
@@ -60,32 +66,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="grow" />
-        <div className="user-switch">
-          <span title={user.email}>{user.email}</span>
-        </div>
-        {!user.gmail_connected && (
-          <button
-            className="btn"
-            onClick={() => void connectGmail()}
-            style={{ width: "100%", justifyContent: "center" }}
-          >
-            + Connect Gmail
+        <div className="topbar-account">
+          <span className="avatar">{initial}</span>
+          <span className="account-email" title={user.email}>{user.email}</span>
+          <button className="btn btn-outline btn-sm" onClick={() => void logout()}>
+            Sign out
           </button>
-        )}
-        <button
-          className="btn"
-          onClick={() => void logout()}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          Sign out
-        </button>
-      </aside>
-      <main className="content">
+        </div>
+      </header>
+      <main className="main">
         <Suspense fallback={null}>
           <ConnectGmail />
         </Suspense>
-        <SyncBar />
         {children}
       </main>
     </div>

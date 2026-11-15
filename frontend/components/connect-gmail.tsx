@@ -29,7 +29,7 @@ export function ConnectGmail() {
   return (
     <>
       {connected && (
-        <div className="error-banner" style={{ background: "var(--ok-weak)", borderColor: "#bbf7d0", color: "var(--ok)" }}>
+        <div className="error-banner" style={{ background: "var(--ok-weak)", borderColor: "var(--ok)", color: "var(--ok)" }}>
           Connected {connectedEmail ?? "Gmail"} successfully.
         </div>
       )}
