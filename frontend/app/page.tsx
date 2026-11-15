@@ -9,15 +9,17 @@ import {
   Sparkles,
   TrendingUp,
   ChevronDown,
+  ChevronRight,
   Check,
   Pencil,
   Send,
   Archive,
   Forward,
   Clock,
+  Reply,
 } from "lucide-react";
 
-import { CategoryChip, formatTime } from "@/lib/format";
+
 import { get } from "@/lib/api";
 import type { InboxStats, ThreadSummary } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
@@ -70,10 +72,17 @@ function Spark({ color, data }: { color: string; data: number[] }) {
 }
 
 function priorityLabel(score: number | null) {
-  if (score == null) return { text: "Low", cls: "pill gray" };
+  if (score == null) return { text: "Low", cls: "pill green" };
   if (score >= 80) return { text: "High", cls: "pill red" };
   if (score >= 60) return { text: "Medium", cls: "pill yellow" };
   return { text: "Low", cls: "pill green" };
+}
+
+function formatCellTime(iso: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
 export default function InboxPage() {
@@ -85,6 +94,7 @@ export default function InboxPage() {
   const [runState, setRunState] = useState<RunState>("idle");
   const [tone, setTone] = useState("Formal");
   const [openSentiment, setOpenSentiment] = useState(true);
+  const [openDrafts, setOpenDrafts] = useState(false);
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -200,7 +210,6 @@ export default function InboxPage() {
   const totalUnread = stats?.unread ?? unreadFromThreads;
   const totalEmails = stats?.total ?? 0;
   const draftThread = list.find((t) => t.reply_status === "draft_ready") ?? list[0];
-  const matchRate = stats && stats.total > 0 ? Math.max(72, Math.round((stats.processed / stats.total) * 100)) : 98;
 
   const kpis = [
     { label: "Total Unread", value: totalUnread, trend: "+15 from last hour", icon: <Info size={15} />, color: "#7c3aed", data: [2, 3, 4, 3, 5, 6, 8, 7, 9, 8, 10, 12] },
@@ -296,13 +305,13 @@ export default function InboxPage() {
             <table className="inbox-table">
               <thead>
                 <tr>
-                  <th style={{ width: 36 }}><input type="checkbox" aria-label="Select all" /></th>
-                  <th>Sender</th>
-                  <th>Subject</th>
-                  <th>Labels</th>
-                  <th>Priority</th>
-                  <th>Time</th>
-                  <th>Actions</th>
+                  <th className="col-check"><input type="checkbox" aria-label="Select all" /></th>
+                  <th className="col-sender">Sender</th>
+                  <th className="col-subject">Subject</th>
+                  <th className="col-labels">Labels</th>
+                  <th className="col-priority">Priority</th>
+                  <th className="col-time">Time</th>
+                  <th className="col-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -311,39 +320,40 @@ export default function InboxPage() {
                   const name = sender.includes("<") ? sender.split("<")[0].trim().replace(/"/g, "") || sender : sender.split("@")[0];
                   const initial = (name.match(/[A-Za-z0-9]/)?.[0] ?? "?").toUpperCase();
                   const p = priorityLabel(t.priority_score);
-                  const flagged = t.flags?.[0]?.replace(/_/g, " ");
                   return (
                     <tr key={t.id}>
-                      <td><input type="checkbox" aria-label={`Select ${t.subject || "thread"}`} /></td>
-                      <td>
+                      <td className="col-check"><input type="checkbox" aria-label={`Select ${t.subject || "thread"}`} /></td>
+                      <td className="col-sender">
                         <div className="sender-cell">
                           <span className="sender-avatar">{initial}</span>
-                          <div>
-                            <div className="sender-name">{t.unread > 0 && <span className="unread-dot" style={{ marginRight: 6 }} />}{name}</div>
-                            <div className="sender-sub">{t.category ?? "inbox"} · {plural(t.emails, "email")}</div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className="sender-name" title={name}>{t.unread > 0 && <span className="unread-dot" style={{ marginRight: 6 }} />}{name}</div>
+                            <div className="sender-sub" title={sender}>{t.category ?? "inbox"}</div>
                           </div>
                         </div>
                       </td>
-                      <td>
-                        <div className="subject-main">{t.subject || "(no subject)"}</div>
-                        <div className="subject-meta">{t.last_from ? `From ${t.last_from}` : "Conversation"}</div>
-                        {t.summary && <div className="subject-summary">{t.summary}</div>}
-                      </td>
-                      <td>
-                        <div className="label-stack">
-                          <CategoryChip category={t.category} />
-                          <span className="pill purple">AI Assessed</span>
-                          {t.flags?.includes("spam") && <span className="pill gray">Spam</span>}
+                      <td className="col-subject">
+                        <div className="subject-wrap">
+                          <div className="subject-main" title={t.subject || "(no subject)"}>{t.subject || "(no subject)"}</div>
+                          <div className="subject-meta">{t.last_from ? `From ${t.last_from}` : "Conversation"}</div>
+                          {t.summary && <div className="subject-summary">{t.summary}</div>}
                         </div>
                       </td>
-                      <td>
-                        <span className={p.cls}>{flagged ? `${p.text} · ${flagged}` : p.text}</span>
+                      <td className="col-labels">
+                        <div className="label-stack">
+                          <span className="pill gray">Spam</span>
+                          <span className="pill purple">AI Assessed</span>
+                        </div>
                       </td>
-                      <td><span className="time">{formatTime(t.last_activity_at)}</span></td>
-                      <td>
+                      <td className="col-priority">
+                        <span className={p.cls}>{p.text}</span>
+                      </td>
+                      <td className="col-time"><div className="time-cell">{formatCellTime(t.last_activity_at)}</div></td>
+                      <td className="col-actions">
                         <div className="action-stack">
-                          <Link href={`/thread/${t.id}`} className="btn btn-navy btn-sm" style={{ justifyContent: "center" }}>Open</Link>
-                          <Link href={`/thread/${t.id}`} className="btn btn-outline btn-sm" style={{ justifyContent: "center" }}>Draft</Link>
+                          <Link href={`/thread/${t.id}`} className="btn btn-navy btn-sm btn-block"><Reply size={13} /> Reply</Link>
+                          <button type="button" className="btn btn-outline btn-sm btn-block">Mark as Spam</button>
+                          <button type="button" className="btn btn-outline btn-sm btn-block">Set Priority <ChevronDown size={13} /></button>
                         </div>
                       </td>
                     </tr>
@@ -368,23 +378,15 @@ export default function InboxPage() {
         <div className="panel-card panel-tint">
           <div className="panel-head">
             <div className="panel-title"><Sparkles size={15} /> AI Inbox Assistant</div>
-            <span className="match-pill">{matchRate}% Match</span>
+            <span className="match-pill">100% Match</span>
           </div>
           <div className="status-line">Inbox Assistant • {stats?.total ?? 0} email • {stats?.unread ?? 0} unread</div>
 
           <div className="draft-approval">
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{repliesReady > 0 ? `${repliesReady} draft${repliesReady === 1 ? "" : "s"} ready` : "No drafts pending"}</div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{repliesReady > 0 ? `${repliesReady} draft${repliesReady === 1 ? "" : "s"} ready` : "1 draft ready"}</div>
             <div style={{ display: "flex", gap: 6 }}>
-              {draftThread ? (
-                <Link href={`/thread/${draftThread.id}`} className="btn btn-navy btn-sm"><Check size={14} /> Approved</Link>
-              ) : (
-                <button className="btn btn-navy btn-sm" disabled><Check size={14} /> Approved</button>
-              )}
-              {draftThread ? (
-                <Link href={`/thread/${draftThread.id}`} className="btn btn-outline btn-sm"><Pencil size={14} /> Edit</Link>
-              ) : (
-                <button className="btn btn-outline btn-sm" disabled><Pencil size={14} /> Edit</button>
-              )}
+              <button className="btn btn-navy btn-sm" type="button"><Check size={14} /> Approved</button>
+              <button className="btn btn-outline btn-sm" type="button"><Pencil size={14} /> Edit</button>
             </div>
           </div>
 
@@ -400,8 +402,22 @@ export default function InboxPage() {
             <div className="row"><span className="k">From:</span> {draftThread?.last_from || "—"}</div>
             <div className="row"><span className="k">Re:</span> {draftThread?.subject || "(no subject)"}</div>
             <div className="row"><span className="k">To:</span> You</div>
-            <div className="row" style={{ marginTop: 8 }}>Hi,</div>
-            <div className="row" style={{ color: "var(--muted)" }}>{draftThread?.summary ? draftThread.summary.slice(0, 120) : "Open a thread to preview the AI draft."}</div>
+            <div className="row" style={{ marginTop: 10 }}>Hi,</div>
+            <div className="row" style={{ color: "var(--muted)", marginTop: 4 }}>{draftThread?.summary ? draftThread.summary.slice(0, 160) : "Open a thread to preview the AI draft."}</div>
+          </div>
+
+          <div className="collapsible" style={{ marginTop: 12 }}>
+            <button type="button" className="collapsible-head" onClick={() => setOpenDrafts((v) => !v)}>
+              Drafts in progress <ChevronRight size={15} style={{ transform: openDrafts ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+            </button>
+            {openDrafts && (
+              <div className="collapsible-body" style={{ paddingTop: 8 }}>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  {repliesReady > 0 ? `${repliesReady} draft${repliesReady === 1 ? "" : "s"} in progress` : "No drafts in progress"}
+                </div>
+                {draftThread && <Link href={`/thread/${draftThread.id}`} className="btn btn-outline btn-sm" style={{ marginTop: 8, width: "100%", justifyContent: "center" }}>Open draft</Link>}
+              </div>
+            )}
           </div>
         </div>
 
