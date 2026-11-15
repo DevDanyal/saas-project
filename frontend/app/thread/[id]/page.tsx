@@ -152,6 +152,15 @@ export default function ThreadPage() {
   if (error) return <div className="error-banner">{error}</div>;
   if (!thread) return <div className="empty">Loading thread…</div>;
 
+  const statusHint =
+    thread.reply_status === "replied"
+      ? "You already replied in this thread."
+      : thread.reply_status === "draft_ready"
+        ? "AI draft is ready to review, edit, and send."
+        : thread.reply_status === "needs_reply"
+          ? "This conversation likely needs your reply."
+          : "No reply action needed right now.";
+
   return (
     <div>
       <Link href="/" className="back-link">
@@ -164,8 +173,8 @@ export default function ThreadPage() {
             {thread.emails.length} emails · {formatTime(thread.last_activity_at)}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <span className={`score ${scoreClass(thread.priority_score)}`}>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <span className={`score ${scoreClass(thread.priority_score)}`} title="AI priority score (0-100)">
             {thread.priority_score ?? "–"}
           </span>
           <CategoryChip category={thread.category} />
@@ -181,6 +190,14 @@ export default function ThreadPage() {
           >
             {rerunning ? "Re-running…" : "Re-run AI"}
           </button>
+        </div>
+      </div>
+
+      <div className="ai-box" style={{ marginBottom: 10 }}>
+        <div className="label">Status</div>
+        <div style={{ fontSize: 13 }}>{statusHint}</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+          Mark read/unread to move threads between Unread and other inbox sections. Mark as Spam moves a thread to Spam; Set Priority updates its urgency.
         </div>
       </div>
 
@@ -282,7 +299,7 @@ export default function ThreadPage() {
                     <DraftBox
                       draft={email.draft}
                       recipient={email.from_addr}
-                      onChanged={reload}
+                      onChanged={() => { reload(); refreshData(); }}
                     />
                   )}
 

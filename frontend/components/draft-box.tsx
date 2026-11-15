@@ -137,8 +137,8 @@ export function DraftBox({
           >
             {busy ? "Sending…" : "Yes, send reply"}
           </button>
-          <button className="btn" onClick={() => setEditing(true)} disabled={busy}>
-            Write my own
+          <button className="btn" onClick={() => { setText(draft.text); setEditing(true); }} disabled={busy}>
+            Edit draft
           </button>
           <button className="btn danger" onClick={reject} disabled={busy}>
             No, skip

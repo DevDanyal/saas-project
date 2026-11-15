@@ -18,9 +18,10 @@ import {
   Clock,
   Reply,
 } from "lucide-react";
+import { CategoryChip } from "@/lib/format";
 
 
-import { get } from "@/lib/api";
+import { get, patch } from "@/lib/api";
 import type { InboxStats, ThreadSummary } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
@@ -86,7 +87,7 @@ function formatCellTime(iso: string | null) {
 }
 
 export default function InboxPage() {
-  const { activeId, syncInbox, processAll, dataVersion } = useUser();
+  const { activeId, syncInbox, processAll, dataVersion, refreshData } = useUser();
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
   const [stats, setStats] = useState<InboxStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export default function InboxPage() {
   const [tone, setTone] = useState("Formal");
   const [openSentiment, setOpenSentiment] = useState(true);
   const [openDrafts, setOpenDrafts] = useState(false);
+  const [busyThread, setBusyThread] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -185,6 +187,32 @@ export default function InboxPage() {
     window.history.replaceState({}, "", window.location.pathname);
     window.setTimeout(() => void runAssistant(), 0);
   }, [activeId, runAssistant]);
+
+  const markSpam = useCallback(async (threadId: string) => {
+    setBusyThread(threadId);
+    setError(null);
+    try {
+      await patch(`/emails/threads/${threadId}`, { category: "spam" });
+      refreshData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyThread(null);
+    }
+  }, [refreshData]);
+
+  const setPriority = useCallback(async (threadId: string, score: number) => {
+    setBusyThread(threadId);
+    setError(null);
+    try {
+      await patch(`/emails/threads/${threadId}`, { priority_score: score });
+      refreshData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyThread(null);
+    }
+  }, [refreshData]);
 
   if (!activeId)
     return (
@@ -324,24 +352,24 @@ export default function InboxPage() {
                     <tr key={t.id}>
                       <td className="col-check"><input type="checkbox" aria-label={`Select ${t.subject || "thread"}`} /></td>
                       <td className="col-sender">
-                        <div className="sender-cell">
+                        <Link href={`/thread/${t.id}`} className="sender-cell" style={{ textDecoration: "none", color: "inherit" }}>
                           <span className="sender-avatar">{initial}</span>
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div className="sender-name" title={name}>{t.unread > 0 && <span className="unread-dot" style={{ marginRight: 6 }} />}{name}</div>
                             <div className="sender-sub" title={sender}>{t.category ?? "inbox"}</div>
                           </div>
-                        </div>
+                        </Link>
                       </td>
                       <td className="col-subject">
-                        <div className="subject-wrap">
+                        <Link href={`/thread/${t.id}`} className="subject-wrap" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
                           <div className="subject-main" title={t.subject || "(no subject)"}>{t.subject || "(no subject)"}</div>
                           <div className="subject-meta">{t.last_from ? `From ${t.last_from}` : "Conversation"}</div>
                           {t.summary && <div className="subject-summary">{t.summary}</div>}
-                        </div>
+                        </Link>
                       </td>
                       <td className="col-labels">
                         <div className="label-stack">
-                          <span className="pill gray">Spam</span>
+                          {t.category === "spam" ? <span className="pill gray">Spam</span> : <CategoryChip category={t.category} />}
                           <span className="pill purple">AI Assessed</span>
                         </div>
                       </td>
@@ -352,8 +380,10 @@ export default function InboxPage() {
                       <td className="col-actions">
                         <div className="action-stack">
                           <Link href={`/thread/${t.id}`} className="btn btn-navy btn-sm btn-block"><Reply size={13} /> Reply</Link>
-                          <button type="button" className="btn btn-outline btn-sm btn-block">Mark as Spam</button>
-                          <button type="button" className="btn btn-outline btn-sm btn-block">Set Priority <ChevronDown size={13} /></button>
+                          <button type="button" className="btn btn-outline btn-sm btn-block" disabled={busyThread === t.id} onClick={() => void markSpam(t.id)}>Mark as Spam</button>
+                          <button type="button" className="btn btn-outline btn-sm btn-block" disabled={busyThread === t.id} onClick={() => void setPriority(t.id, (t.priority_score ?? 0) >= 80 ? 40 : 90)}>
+                            Set Priority <ChevronDown size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>

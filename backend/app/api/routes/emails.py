@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +37,13 @@ class MarkReadRequest(BaseModel):
 
 class UpdateActionItemRequest(BaseModel):
     status: Literal["open", "done", "cancelled"]
+
+
+class UpdateThreadRequest(BaseModel):
+    category: Literal[
+        "lead", "client", "vendor", "legal", "financial", "internal", "spam", "newsletter"
+    ] | None = None
+    priority_score: int | None = Field(default=None, ge=0, le=100)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -541,6 +549,31 @@ async def inbox(
             )
             for t in threads
         ]
+    }
+
+
+@router.patch("/threads/{thread_id}")
+@limiter.limit("120/minute")
+async def update_thread(
+    request: Request,
+    thread_id: uuid.UUID,
+    body: UpdateThreadRequest,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    thread = await crud.get_thread_detail(db, thread_id)
+    if thread is None or thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    if body.category is not None:
+        thread.category = models.CategoryType(body.category)
+    if body.priority_score is not None:
+        thread.priority_score = body.priority_score
+    await db.commit()
+    await db.refresh(thread)
+    return {
+        "id": str(thread.id),
+        "category": thread.category.value if thread.category else None,
+        "priority_score": thread.priority_score,
     }
 
 
