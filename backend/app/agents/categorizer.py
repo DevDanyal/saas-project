@@ -17,9 +17,12 @@ _PUBLIC_EMAIL_DOMAINS = {
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 _CATEGORY_GUIDE = """
-lead: a potential buyer/seller not yet working with the agent, or a new
-  person asking the agent for help/services they have not hired yet.
-client: an active buyer/seller under contract or in active process.
+lead: a property prospect (buyer/seller) not yet under contract, e.g. wants to
+  see homes, looking to buy/sell, asking about a listing.
+client: a customer — an active buyer/seller under contract/in process, OR
+  someone asking about services the business offers (e.g. "can you build me a
+  website?"). A person who emails asking you to make/build something for them
+  is a customer.
 vendor: home inspectors, photographers, title, mortgage, stagers, contractors.
 legal: lawyers, disputes, contracts, requests for legal advice.
 financial: financing, pre-approvals, mortgage, closing costs, currency.
@@ -33,7 +36,8 @@ newsletter: legitimate subscriptions/digests/bulk marketing.
 _EXAMPLES = """
 Examples:
 - "Hi, we are pre-approved for $450k and want to see lakefront homes." -> lead
-- "I want a professional website for my business - can you make it?" -> lead
+- "I want a professional website for my business - can you make it?" -> client
+- "Can you build me a website for my new business?" -> client
 - "The appraisal report is ready for the closing file." -> client
 - "Inspection scheduled for Thursday at the Smith listing." -> vendor
 - "Please review the attached purchase agreement." -> legal
@@ -106,15 +110,15 @@ _KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("lead", (
         "interested in", "schedule a showing", "see the home", "book a tour",
         "looking to buy", "looking to sell", "listing alert", "pre-approved for",
+    )),
+    ("client", (
+        "under contract", "offer accepted", "closing date", "final walkthrough",
+        "counteroffer", "counter offer", "closing disclosure",
         "want a website", "need a website", "webbsite", "web site for my",
         "website for my", "build a website", "build me a", "make a website",
         "make me a", "can you make", "can u make", "for my business",
         "for my bisuness", "request a quote", "get a quote", "price quote",
         "hire you", "work with you", "help me with", "need help with",
-    )),
-    ("client", (
-        "under contract", "offer accepted", "closing date", "final walkthrough",
-        "counteroffer", "counter offer", "closing disclosure",
     )),
     ("internal", (
         "team meeting", "our brokerage", "staff meeting", "office memo",

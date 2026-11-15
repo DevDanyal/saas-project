@@ -206,3 +206,28 @@ async def test_sync_folds_gmail_read_state_for_older_threads(db):
     await db.refresh(email)
     assert email.is_read is True
     assert stats["marked_read"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_moves_misfiled_external_mail_to_customers(db):
+    user = await crud.get_or_create_user(db, "Agent", "owner@gmail.com")
+    await crud.add_email_account(
+        db, user.id, models.ProviderType.gmail, "owner@gmail.com",
+        token_cache=json.dumps({"token": "fake"}),
+    )
+    thread = await crud.upsert_thread(
+        db, user.id, "thread-misfiled", "website",
+        category=models.CategoryType.internal,
+    )
+    await crud.insert_email(
+        db, thread.id, "msg-misfiled", "customer@gmail.com", "owner@gmail.com",
+        "website for my bisuness",
+        "hi danyal i want a professional webbsite for my bisuness can u make for me ?",
+        datetime.now(timezone.utc),
+    )
+
+    stats = await gmail_sync.sync_user_inbox(db, user.id, service=FakeGmail([], {}))
+
+    await db.refresh(thread)
+    assert thread.category == models.CategoryType.client
+    assert stats["recategorized"] == 1

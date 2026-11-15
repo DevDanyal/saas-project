@@ -151,8 +151,10 @@ async def process_email(db, email_id, llm=None) -> dict:
         email.from_addr, account_email
     ):
         # A customer/prospect on a personal address is never "internal", even
-        # if the model (or a broad keyword) said so.
-        category_name = "lead"
+        # if the model (or a broad keyword) said so. Use the deterministic
+        # classifier, which routes service requests to Customers.
+        deterministic = categorizer.fallback_category(clean)
+        category_name = deterministic if deterministic != "internal" else "client"
 
     sentiment_value = {"mood": "neutral", "intensity": 0.0, "warning": False}
     if not llm_down:

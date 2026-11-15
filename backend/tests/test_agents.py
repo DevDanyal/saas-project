@@ -92,7 +92,7 @@ def test_categorizer_fallback_keywords():
         categorizer.fallback_category(
             {"body": "hi danyal i want a professional webbsite for my bisuness"}
         )
-        == "lead"
+        == "client"
     )
 
 
@@ -206,7 +206,7 @@ async def test_pipeline_persists_all_outputs(db):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_moves_external_internal_mail_to_leads(db):
+async def test_pipeline_moves_external_internal_mail_to_customers(db):
     user = await crud.get_or_create_user(db, "Agent", "devdanyal9@gmail.com")
     thread = await crud.upsert_thread(db, user.id, "ext-thread-web", "website")
     email = await crud.insert_email(
@@ -217,13 +217,17 @@ async def test_pipeline_moves_external_internal_mail_to_leads(db):
         datetime.now(timezone.utc),
     )
 
-    result = await pipeline.process_email(
-        db, email.id, llm=build_fake(category="internal")
-    )
+    fake = build_fake(category="internal")
+    fake._by_keyword["Normalize this raw email"] = {
+        **read_resp,
+        "subject": "website for my bisuness",
+        "body_clean": "hi danyal i want a professional webbsite for my bisuness can u make for me ?",
+    }
 
-    assert result["category"] == "lead"
+    result = await pipeline.process_email(db, email.id, llm=fake)
+    assert result["category"] == "client"
     await db.refresh(thread)
-    assert thread.category == models.CategoryType.lead
+    assert thread.category == models.CategoryType.client
 
 
 @pytest.mark.asyncio

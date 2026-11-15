@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from google.oauth2.credentials import Credentials
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents import categorizer
 from app.db import crud, models
 from app.services import crypto, gmail_auth, gmail_send
 from app.services.email_text import clean_email_body, html_to_text
@@ -105,7 +107,14 @@ async def sync_user_inbox(
         userId="me", maxResults=max_results
     ).execute()
 
-    stats = {"threads": 0, "emails_added": 0, "emails_skipped": 0, "errors": 0, "marked_read": 0}
+    stats = {
+        "threads": 0,
+        "emails_added": 0,
+        "emails_skipped": 0,
+        "errors": 0,
+        "marked_read": 0,
+        "recategorized": 0,
+    }
 
     for item in thread_result.get("threads", []):
         try:
@@ -167,8 +176,59 @@ async def sync_user_inbox(
     except Exception:
         pass
 
+    # Older mail was filed by earlier versions of the classifier; an external
+    # sender must never stay hidden in Internal.
+    try:
+        stats["recategorized"] = await _recategorize_external_internal(
+            db, user_id, account.email
+        )
+    except Exception:
+        pass
+
     await db.flush()
     return stats
+
+
+async def _recategorize_external_internal(
+    db: AsyncSession, user_id: UUID, account_email: str | None
+) -> int:
+    fixed = 0
+    result = await db.execute(
+        select(models.Thread).where(
+            models.Thread.user_id == user_id,
+            models.Thread.category == models.CategoryType.internal,
+        )
+    )
+    for thread in result.scalars().all():
+        emails = await crud.list_emails_for_thread(db, thread.id)
+        if not emails:
+            continue
+        emails.sort(key=lambda m: m.received_at, reverse=True)
+        inbound = next(
+            (
+                m
+                for m in emails
+                if categorizer.sender_is_external(m.from_addr, account_email)
+            ),
+            None,
+        )
+        if inbound is None:
+            continue
+        name = categorizer.fallback_category(
+            {
+                "subject": inbound.subject,
+                "from_addr": inbound.from_addr,
+                "body": inbound.body,
+            }
+        )
+        if name == "internal":
+            name = "client"
+        try:
+            thread.category = models.CategoryType(name)
+        except ValueError:
+            continue
+        fixed += 1
+    return fixed
 
 
 def _reply_subject(subject: str) -> str:
