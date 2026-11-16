@@ -188,7 +188,7 @@ export default function InboxPage() {
       <div className="assistant-brief">
         <div>
           <div className="label">Inbox assistant</div>
-          <p>{stats ? briefFor(stats) : "Reading your inbox…"}</p>
+          <p>{stats ? briefFor(stats) : "Reading your inbox..."}</p>
           {notice && <div className="assistant-note">{notice}</div>}
         </div>
         <button
@@ -198,9 +198,9 @@ export default function InboxPage() {
         >
           {runState !== "idle" && <span className="spin" />}
           {runState === "syncing"
-            ? "Syncing Gmail…"
+            ? "Syncing Gmail..."
             : runState === "analyzing"
-              ? "Reviewing emails…"
+              ? "Reviewing emails..."
               : "Run Assistant"}
         </button>
       </div>
@@ -223,7 +223,7 @@ export default function InboxPage() {
       <div className="toolbar">
         <input
           className="tool-input"
-          placeholder="Search subject or summary…"
+          placeholder="Search subject or summary..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -261,16 +261,16 @@ export default function InboxPage() {
           }}
           aria-label="Sort"
         >
-          <option value="priority:desc">Priority high → low</option>
-          <option value="priority:asc">Priority low → high</option>
+          <option value="priority:desc">Priority high · low</option>
+          <option value="priority:asc">Priority low · high</option>
           <option value="recent:desc">Newest first</option>
           <option value="recent:asc">Oldest first</option>
-          <option value="subject:asc">Subject A → Z</option>
+          <option value="subject:asc">Subject A · Z</option>
         </select>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
-      {threads === null && <div className="empty">Loading inbox…</div>}
+      {threads === null && <div className="empty">Loading inbox...</div>}
       {threads !== null && threads.length === 0 && (
         <div className="empty">
           <h2>No threads in {sectionLabel}</h2>

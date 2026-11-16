@@ -75,7 +75,7 @@ export default function BillingPage() {
       </div>
     );
 
-  if (loadedFor !== activeId) return <div className="empty">Loading billing…</div>;
+  if (loadedFor !== activeId) return <div className="empty">Loading billing...</div>;
 
   const currentPlan = subscription?.plan ?? "free";
 
@@ -187,7 +187,7 @@ export default function BillingPage() {
               style={{ width: "100%", marginTop: 12 }}
             >
               {checkoutLoading === p.price_id
-                ? "Redirecting…"
+                ? "Redirecting..."
                 : p.name.toLowerCase() === currentPlan
                 ? "Current Plan"
                 : p.monthly_price === 0

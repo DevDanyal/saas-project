@@ -245,7 +245,7 @@ export function AuthScreen() {
         </div>
 
         <p className="mt-4 text-center text-[11px] leading-relaxed text-[var(--muted)]">
-          Connected Gmail before? Use <strong>Continue with Google</strong> — that
+          Connected Gmail before? Use <strong>Continue with Google</strong> · that
           account has no password.
         </p>
         <button

@@ -100,7 +100,7 @@ export default function SettingsPage() {
       </div>
     );
 
-  if (loading) return <div className="empty">Loading settings…</div>;
+  if (loading) return <div className="empty">Loading settings...</div>;
 
   return (
     <div>
@@ -192,7 +192,7 @@ export default function SettingsPage() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn primary" onClick={() => void save()} disabled={saving}>
-            {saving ? "Saving…" : "Save settings"}
+            {saving ? "Saving..." : "Save settings"}
           </button>
           {saved && <span className="chip ok">Saved</span>}
         </div>

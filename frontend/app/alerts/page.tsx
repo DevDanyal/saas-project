@@ -90,7 +90,7 @@ export default function AlertsPage() {
           onClick={toggleAutopilot}
           disabled={!prefs || saving}
         >
-          {saving ? "Saving…" : autopilotOn ? "Turn off" : "Turn on"}
+          {saving ? "Saving..." : autopilotOn ? "Turn off" : "Turn on"}
         </button>
       </div>
 

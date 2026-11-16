@@ -75,7 +75,7 @@ export default function ActionsPage() {
         <div>
           <h1>Action Items</h1>
           <div className="sub">
-            {open} open · {done} done — extracted automatically.
+            {open} open · {done} done · extracted automatically.
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>

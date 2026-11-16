@@ -41,7 +41,7 @@ export function ConnectGmail() {
           <h2>Connect your Gmail</h2>
           <p>
             We read and summarize your inbox so you can approve or ignore each
-            thread. Read-only access — nothing is sent without your say.
+            thread. Read-only access · nothing is sent without your say.
           </p>
           <button className="btn primary" onClick={connect} disabled={busy} style={{ marginTop: 10 }}>
             {busy && <span className="spin" />} Connect Gmail

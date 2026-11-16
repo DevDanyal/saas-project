@@ -53,7 +53,7 @@ export default function ThreadPage() {
   return (
     <div>
       <Link href="/" className="back-link">
-        ← Back to inbox
+        · Back to inbox
       </Link>
       <div className="page-head" style={{ marginTop: 10 }}>
         <div>

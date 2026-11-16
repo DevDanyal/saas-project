@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--paper)]">
         <div className="flex items-center gap-3 text-[13px] text-[var(--muted)]">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--gold)]" />
-          Loading workspace…
+          Loading workspace...
         </div>
       </div>
     );

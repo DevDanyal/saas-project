@@ -4,7 +4,6 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from pydantic import BaseModel
 from sqlalchemy import asc, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter

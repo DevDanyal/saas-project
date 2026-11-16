@@ -62,7 +62,7 @@ export default function ReportsPage() {
       </div>
     );
 
-  if (loading) return <div className="empty">Loading…</div>;
+  if (loading) return <div className="empty">Loading...</div>;
 
   if (teams.length === 0) {
     return (
@@ -108,7 +108,7 @@ export default function ReportsPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {reportLoading ? (
-        <div className="empty">Generating report…</div>
+        <div className="empty">Generating report...</div>
       ) : report ? (
         <div className="report-grid">
           <div className="report-card">

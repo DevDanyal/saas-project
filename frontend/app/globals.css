@@ -1,10 +1,10 @@
 /* ============================================================
-   Brokerage Editorial — warm real-estate premium
+   Brokerage Editorial · warm real-estate premium
    Cream paper · deep forest ink · bronze-gold accent
    Fonts: Fraunces (display) · IBM Plex Sans (body) · IBM Plex Mono (numbers)
    ============================================================ */
 
-/* Tailwind (theme + utilities only, no preflight — keeps the editorial
+/* Tailwind (theme + utilities only, no preflight · keeps the editorial
    base styles below intact; used by the animated auth screen). */
 @import "tailwindcss/theme.css";
 @import "tailwindcss/utilities.css";
@@ -22,7 +22,7 @@
   --ink-strong: #1b2016;
   --muted: #6f6a55;
 
-  /* accent — bronze gold */
+  /* accent · bronze gold */
   --gold: #a97c2c;
   --gold-strong: #bd8f33;
   --gold-dark: #8a6420;

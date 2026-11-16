@@ -100,7 +100,7 @@ export default function TeamsPage() {
       </div>
     );
 
-  if (loading) return <div className="empty">Loading teams…</div>;
+  if (loading) return <div className="empty">Loading teams...</div>;
 
   return (
     <div>
