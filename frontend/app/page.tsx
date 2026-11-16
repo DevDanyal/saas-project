@@ -126,6 +126,15 @@ export default function InboxPage() {
     void loadStats();
   }, [loadStats, dataVersion]);
 
+  useEffect(() => {
+    if (!stats || category === "") return;
+    const count = category === "unread" ? (stats.unread ?? 0) : (stats.categories?.[category] ?? 0);
+    if (count === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCategory("");
+    }
+  }, [category, stats]);
+
   const runAssistant = useCallback(async () => {
     if (!activeId || runState !== "idle") return;
     setNotice(null);
@@ -182,12 +191,6 @@ export default function InboxPage() {
   };
   const visibleSections = SECTIONS.filter((s) => s.key === "" || s.key === category || sectionCount(s.key) > 0);
   const sectionLabel = SECTIONS.find((s) => s.key === category)?.label ?? "All Mail";
-
-  useEffect(() => {
-    if (category !== "" && sectionCount(category) === 0 && stats) {
-      setCategory("");
-    }
-  }, [category, stats]);
 
   return (
     <div>
