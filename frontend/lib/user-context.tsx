@@ -26,7 +26,6 @@ type UserContextValue = {
   markRead: (id: string) => Promise<void>;
   busy: boolean;
   dataVersion: number;
-  refreshData: () => void;
   error: string | null;
 };
 
@@ -45,7 +44,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const SESSION_TIMEOUT_MS = 15000;
+    const SESSION_TIMEOUT_MS = 6000;
     const timer = window.setTimeout(() => {
       if (!cancelled) setAuthChecked(true);
     }, SESSION_TIMEOUT_MS);
@@ -128,29 +127,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!activeId) return;
-    const refreshNotifications = () => {
+    const refresh = () => {
       loadNotifications().catch(() => {});
     };
-    const refreshAll = () => {
-      refreshNotifications();
-      setDataVersion((v) => v + 1);
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refreshAll();
-    };
-    const timer = window.setInterval(refreshNotifications, 30000);
-    window.addEventListener("focus", refreshAll);
-    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", refreshAll);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
     };
   }, [activeId, loadNotifications]);
-
-  const refreshData = useCallback(() => {
-    setDataVersion((v) => v + 1);
-  }, []);
 
   const syncInbox = useCallback(async () => {
     if (!activeId) throw new Error("Not signed in");
@@ -172,18 +158,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError(null);
     try {
-      let processed = 0;
-      let errors = 0;
-      let pending = 1;
-      for (let batch = 0; batch < 40 && pending > 0; batch += 1) {
-        const r = await post<ProcessStats>(`/emails/process-all/${activeId}`);
-        processed += r.processed;
-        errors += r.errors;
-        pending = r.pending;
-        setDataVersion((v) => v + 1);
-        if (r.processed === 0) break;
-      }
-      return { processed, errors, pending };
+      return await post<ProcessStats>(`/emails/process-all/${activeId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
@@ -210,7 +185,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         markRead,
         busy,
         dataVersion,
-        refreshData,
         error,
       }}
     >

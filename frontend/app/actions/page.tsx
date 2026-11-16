@@ -1,1 +1,144 @@
-"use client";  import { useCallback, useEffect, useState } from "react";  import { formatDate } from "@/lib/format"; import { get, patch } from "@/lib/api"; import type { ActionItem } from "@/lib/types"; import { useUser } from "@/lib/user-context";  type Filter = "open" | "done" | "cancelled" | "all";  export default function ActionsPage() {   const { activeId } = useUser();   const [items, setItems] = useState<ActionItem[] | null>(null);   const [filter, setFilter] = useState<Filter>("open");   const [error, setError] = useState<string | null>(null);   const [busyId, setBusyId] = useState<string | null>(null);    const load = useCallback(async () => {     if (!activeId) return;     const r = await get<{ action_items: ActionItem[] }>(       `/emails/action-items/${activeId}?status=all`,     );     setItems(r.action_items);   }, [activeId]);    useEffect(() => {     if (!activeId) return;     let cancelled = false;     (async () => {       try {         await load();       } catch (e) {         if (!cancelled) setError(e instanceof Error ? e.message : String(e));       }     })();     return () => {       cancelled = true;     };   }, [activeId, load]);    async function setStatus(id: string, status: "done" | "cancelled" | "open") {     setBusyId(id);     setError(null);     try {       await patch(`/emails/action-items/${id}`, { status });       await load();     } catch (e) {       setError(e instanceof Error ? e.message : String(e));     } finally {       setBusyId(null);     }   }    if (!activeId)     return (       <div className="empty">         <h2>No agent account</h2>         <p>Select an account to see its extracted action items.</p>       </div>     );    if (items === null) return <div className="empty">Loading action itemsÔÇª</div>;    const sorted = [...items].sort((a, b) =>     (a.due ?? "9999").localeCompare(b.due ?? "9999"),   );   const open = items.filter((i) => i.status === "open").length;   const done = items.filter((i) => i.status === "done").length;   const visible = sorted.filter((i) => filter === "all" || i.status === filter);    return (     <div>       <div className="page-head">         <div>           <h1>Action Items</h1>           <div className="sub">             {open} open ┬À {done} done ÔÇö extracted automatically.           </div>         </div>         <div style={{ display: "flex", gap: 6 }}>           {(["open", "done", "cancelled", "all"] as Filter[]).map((f) => (             <button               key={f}               className={`btn ${filter === f ? "primary" : ""}`}               onClick={() => setFilter(f)}             >               {f}             </button>           ))}         </div>       </div>        {error && <div className="error-banner">{error}</div>}        {visible.length === 0 && (         <div className="empty">           <h2>Nothing here</h2>           <p>No action items match this filter.</p>         </div>       )}        <div className="card" style={{ padding: "6px 0" }}>         {visible.map((i) => (           <div key={i.id} className="action-item" style={{ padding: "10px 16px" }}>             <span className={`chip ${i.type === "call" ? "hot" : "warm"}`}>{i.type}</span>             <span className="desc">               {i.description}               {i.contact && <span className="sub"> ┬À {i.contact}</span>}               {i.property && <span className="sub"> ┬À {i.property}</span>}             </span>             <span className="time">due {formatDate(i.due)}</span>             {i.status === "open" ? (               <span style={{ display: "flex", gap: 6 }}>                 <button                   className="btn"                   disabled={busyId === i.id}                   onClick={() => void setStatus(i.id, "done")}                 >                   Done                 </button>                 <button                   className="btn"                   disabled={busyId === i.id}                   onClick={() => void setStatus(i.id, "cancelled")}                 >                   Dismiss                 </button>               </span>             ) : (               <button                 className="btn"                 disabled={busyId === i.id}                 onClick={() => void setStatus(i.id, "open")}               >                 Reopen               </button>             )}           </div>         ))}       </div>     </div>   ); }
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+import { formatDate } from "@/lib/format";
+import { get, patch } from "@/lib/api";
+import type { ActionItem } from "@/lib/types";
+import { useUser } from "@/lib/user-context";
+
+type Filter = "open" | "done" | "cancelled" | "all";
+
+export default function ActionsPage() {
+  const { activeId } = useUser();
+  const [items, setItems] = useState<ActionItem[] | null>(null);
+  const [filter, setFilter] = useState<Filter>("open");
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!activeId) return;
+    const r = await get<{ action_items: ActionItem[] }>(
+      `/emails/action-items/${activeId}?status=all`,
+    );
+    setItems(r.action_items);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await load();
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, load]);
+
+  async function setStatus(id: string, status: "done" | "cancelled" | "open") {
+    setBusyId(id);
+    setError(null);
+    try {
+      await patch(`/emails/action-items/${id}`, { status });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!activeId)
+    return (
+      <div className="empty">
+        <h2>No agent account</h2>
+        <p>Select an account to see its extracted action items.</p>
+      </div>
+    );
+
+  if (items === null) return <div className="empty">Loading action items…</div>;
+
+  const sorted = [...items].sort((a, b) =>
+    (a.due ?? "9999").localeCompare(b.due ?? "9999"),
+  );
+  const open = items.filter((i) => i.status === "open").length;
+  const done = items.filter((i) => i.status === "done").length;
+  const visible = sorted.filter((i) => filter === "all" || i.status === filter);
+
+  return (
+    <div>
+      <div className="page-head">
+        <div>
+          <h1>Action Items</h1>
+          <div className="sub">
+            {open} open · {done} done — extracted automatically.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["open", "done", "cancelled", "all"] as Filter[]).map((f) => (
+            <button
+              key={f}
+              className={`btn ${filter === f ? "primary" : ""}`}
+              onClick={() => setFilter(f)}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {visible.length === 0 && (
+        <div className="empty">
+          <h2>Nothing here</h2>
+          <p>No action items match this filter.</p>
+        </div>
+      )}
+
+      <div className="card" style={{ padding: "6px 0" }}>
+        {visible.map((i) => (
+          <div key={i.id} className="action-item" style={{ padding: "10px 16px" }}>
+            <span className={`chip ${i.type === "call" ? "hot" : "warm"}`}>{i.type}</span>
+            <span className="desc">
+              {i.description}
+              {i.contact && <span className="sub"> · {i.contact}</span>}
+              {i.property && <span className="sub"> · {i.property}</span>}
+            </span>
+            <span className="time">due {formatDate(i.due)}</span>
+            {i.status === "open" ? (
+              <span style={{ display: "flex", gap: 6 }}>
+                <button
+                  className="btn"
+                  disabled={busyId === i.id}
+                  onClick={() => void setStatus(i.id, "done")}
+                >
+                  Done
+                </button>
+                <button
+                  className="btn"
+                  disabled={busyId === i.id}
+                  onClick={() => void setStatus(i.id, "cancelled")}
+                >
+                  Dismiss
+                </button>
+              </span>
+            ) : (
+              <button
+                className="btn"
+                disabled={busyId === i.id}
+                onClick={() => void setStatus(i.id, "open")}
+              >
+                Reopen
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
