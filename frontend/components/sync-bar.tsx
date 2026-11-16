@@ -28,16 +28,17 @@ export function SyncBar() {
 
   async function onProcess() {
     if (!activeId) return;
-    setNotice(null);
+    setNotice("Processing emails with AI...");
     setRunning("process");
     try {
       const stats: ProcessStats = await processAll();
       setNotice(
-        stats.processed > 0
-          ? `AI processed ${stats.processed} email(s), ${stats.errors} error(s).`
+        stats.processed > 0 || stats.errors > 0
+          ? `AI reviewed ${stats.processed} email(s), ${stats.errors} error(s)${stats.pending ? `, ${stats.pending} pending` : ""}.`
           : "No unprocessed emails. Sync first, or there is nothing new.",
       );
     } catch {
+      setNotice(null);
       /* error surfaced in banner */
     } finally {
       setRunning(null);

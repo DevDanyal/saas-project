@@ -926,3 +926,10 @@ ul.section-list li {
     justify-content: center;
   }
 }
+
+
+/* unread indicators */
+.unread-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--primary,#a97c2c);margin-right:2px;flex:0 0 auto}
+.thread-row.unread{background:rgba(169,124,44,0.06)}
+.thread-row.unread .subject{font-weight:700;color:var(--ink,#1f2937)}
+.email-card.unread-email{background:rgba(169,124,44,0.03)}

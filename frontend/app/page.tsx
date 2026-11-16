@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -11,12 +11,13 @@ import {
   formatTime,
   scoreClass,
 } from "@/lib/format";
-import { get } from "@/lib/api";
+import { get, patch } from "@/lib/api";
 import type { InboxStats, ThreadSummary } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
 const SECTIONS: { key: string; label: string }[] = [
   { key: "", label: "All Mail" },
+  { key: "unread", label: "Unread" },
   { key: "client", label: "Customers" },
   { key: "lead", label: "Leads" },
   { key: "vendor", label: "Vendors" },
@@ -86,55 +87,44 @@ export default function InboxPage() {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!activeId) return;
-    let cancelled = false;
     const params = new URLSearchParams({ limit: "100", sort, order });
     if (debouncedQuery) params.set("q", debouncedQuery);
-    if (category) params.set("category", category);
+    if (category && category !== "unread") params.set("category", category);
+    if (category === "unread") params.set("unread", "true");
     if (flag) params.set("flag", flag);
     if (minPriority) params.set("min_priority", minPriority);
-    (async () => {
-      try {
-        const r = await get<{ threads: ThreadSummary[] }>(
-          `/emails/inbox/${activeId}?${params.toString()}`,
-        );
-        if (!cancelled) {
-          setThreads(r.threads);
-          setError(null);
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeId,
-    debouncedQuery,
-    category,
-    flag,
-    minPriority,
-    sort,
-    order,
-    dataVersion,
-  ]);
+    try {
+      const r = await get<{ threads: ThreadSummary[] }>(
+        `/emails/inbox/${activeId}?${params.toString()}`,
+      );
+      setThreads(r.threads);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [activeId, debouncedQuery, category, flag, minPriority, sort, order]);
+
+  const loadStats = useCallback(async () => {
+    if (!activeId) return;
+    try {
+      const s = await get<InboxStats>(`/emails/stats/${activeId}`);
+      setStats(s);
+    } catch {
+      /* threads request surfaces errors */
+    }
+  }, [activeId]);
 
   useEffect(() => {
-    if (!activeId) return;
-    let cancelled = false;
-    get<InboxStats>(`/emails/stats/${activeId}`)
-      .then((s) => {
-        if (!cancelled) setStats(s);
-      })
-      .catch(() => {
-        /* the threads request surfaces errors */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeId, dataVersion]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load, dataVersion]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadStats();
+  }, [loadStats, dataVersion]);
 
   const runAssistant = useCallback(async () => {
     if (!activeId || runState !== "idle") return;
@@ -155,13 +145,27 @@ export default function InboxPage() {
       if (newEmails) parts.push(`${plural(newEmails, "new email")} synced`);
       parts.push(`${plural(p.processed, "email")} reviewed`);
       if (p.errors) parts.push(`${p.errors} error(s)`);
+      if (p.pending) parts.push(`${p.pending} pending`);
       setNotice(parts.join(" · "));
     } catch {
       /* error surfaced in banner */
     } finally {
       setRunState("idle");
+      void load();
+      void loadStats();
     }
-  }, [activeId, runState, syncInbox, processAll]);
+  }, [activeId, runState, syncInbox, processAll, load, loadStats]);
+
+  async function markThreadRead(threadId: string) {
+    try {
+      const detail = await get<{ emails: { id: string; is_read: boolean }[] }>(`/emails/threads/${threadId}`);
+      const unread = detail.emails.filter((e) => !e.is_read);
+      await Promise.all(unread.map((e) => patch(`/emails/${e.id}/read`, { is_read: true })));
+      await Promise.all([load(), loadStats()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   if (!activeId)
     return (
@@ -171,10 +175,12 @@ export default function InboxPage() {
       </div>
     );
 
-  const sectionCount = (key: string) =>
-    key === "" ? (stats?.total ?? 0) : (stats?.categories?.[key] ?? 0);
-  const sectionLabel =
-    SECTIONS.find((s) => s.key === category)?.label ?? "All Mail";
+  const sectionCount = (key: string) => {
+    if (key === "") return stats?.total ?? 0;
+    if (key === "unread") return stats?.unread ?? 0;
+    return stats?.categories?.[key] ?? 0;
+  };
+  const sectionLabel = SECTIONS.find((s) => s.key === category)?.label ?? "All Mail";
 
   return (
     <div>
@@ -191,17 +197,9 @@ export default function InboxPage() {
           <p>{stats ? briefFor(stats) : "Reading your inbox..."}</p>
           {notice && <div className="assistant-note">{notice}</div>}
         </div>
-        <button
-          className="btn primary"
-          onClick={() => void runAssistant()}
-          disabled={runState !== "idle"}
-        >
+        <button className="btn primary" onClick={() => void runAssistant()} disabled={runState !== "idle"}>
           {runState !== "idle" && <span className="spin" />}
-          {runState === "syncing"
-            ? "Syncing Gmail..."
-            : runState === "analyzing"
-              ? "Reviewing emails..."
-              : "Run Assistant"}
+          {runState === "syncing" ? "Syncing Gmail..." : runState === "analyzing" ? "Reviewing emails..." : "Run Assistant"}
         </button>
       </div>
 
@@ -227,25 +225,13 @@ export default function InboxPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          className="tool-select"
-          value={flag}
-          onChange={(e) => setFlag(e.target.value)}
-          aria-label="Flag"
-        >
+        <select className="tool-select" value={flag} onChange={(e) => setFlag(e.target.value)} aria-label="Flag">
           <option value="">All flags</option>
           {FLAGS.map((f) => (
-            <option key={f} value={f}>
-              {f.replace(/_/g, " ")}
-            </option>
+            <option key={f} value={f}>{f.replace(/_/g, " ")}</option>
           ))}
         </select>
-        <select
-          className="tool-select"
-          value={minPriority}
-          onChange={(e) => setMinPriority(e.target.value)}
-          aria-label="Minimum priority"
-        >
+        <select className="tool-select" value={minPriority} onChange={(e) => setMinPriority(e.target.value)} aria-label="Minimum priority">
           <option value="">Any priority</option>
           <option value="80">80+</option>
           <option value="60">60+</option>
@@ -261,11 +247,11 @@ export default function InboxPage() {
           }}
           aria-label="Sort"
         >
-          <option value="priority:desc">Priority high · low</option>
-          <option value="priority:asc">Priority low · high</option>
+          <option value="priority:desc">Priority high to low</option>
+          <option value="priority:asc">Priority low to high</option>
           <option value="recent:desc">Newest first</option>
           <option value="recent:asc">Oldest first</option>
-          <option value="subject:asc">Subject A · Z</option>
+          <option value="subject:asc">Subject A to Z</option>
         </select>
       </div>
 
@@ -276,7 +262,7 @@ export default function InboxPage() {
           <h2>No threads in {sectionLabel}</h2>
           <p>
             {stats && stats.total === 0
-              ? "Press “Run Assistant” to fetch and review your Gmail inbox."
+              ? "Press \"Run Assistant\" to fetch and review your Gmail inbox."
               : "Try another section, clear the filters, or run the assistant again."}
           </p>
         </div>
@@ -285,38 +271,36 @@ export default function InboxPage() {
       {threads !== null && threads.length > 0 && (
         <div className="thread-list">
           {threads.map((t) => (
-            <Link key={t.id} href={`/thread/${t.id}`} className="thread-row">
+            <div key={t.id} className={`thread-row ${t.unread ? "unread" : ""}`} style={{ cursor: "default" }}>
               <div className="row-top">
-                <span className={`score ${scoreClass(t.priority_score)}`}>
-                  {t.priority_score ?? "–"}
-                </span>
-                <span className="subject">{t.subject || "(no subject)"}</span>
+                {t.unread > 0 && <span className="unread-dot" title={`${t.unread} unread`} />}
+                <span className={`score ${scoreClass(t.priority_score)}`}>{t.priority_score ?? "-"}</span>
+                <Link href={`/thread/${t.id}`} className="subject" style={{ fontWeight: t.unread ? 700 : 600 }}>
+                  {t.subject || "(no subject)"}
+                </Link>
                 <CategoryChip category={t.category} />
                 <ReplyStatusChip status={t.reply_status} />
-                {t.flags?.slice(0, 2).map((f) => (
-                  <FlagChip key={f} flag={f} />
-                ))}
+                {t.flags?.slice(0, 2).map((f) => <FlagChip key={f} flag={f} />)}
               </div>
               <div className="meta">
                 <span>{plural(t.emails, "email")}</span>
-                {t.last_from && (
-                  <>
-                    <span>·</span>
-                    <span className="from">from {t.last_from}</span>
-                  </>
-                )}
-                <span>·</span>
-                <span>{formatTime(t.last_activity_at)}</span>
+                {t.unread > 0 && <><span>·</span><span style={{ color: "var(--primary)", fontWeight: 600 }}>{t.unread} unread</span></>}
+                {t.last_from && <><span>·</span><span className="from">from {t.last_from}</span></>}
+                <span>·</span><span>{formatTime(t.last_activity_at)}</span>
+                <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
+                  {t.unread > 0 && (
+                    <button className="btn" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => void markThreadRead(t.id)}>Mark read</button>
+                  )}
+                  <Link href={`/thread/${t.id}`} className="btn" style={{ padding: "2px 8px", fontSize: 12 }}>Open</Link>
+                </span>
               </div>
               {t.pipeline_hints?.length > 0 && (
                 <div className="badge-row">
-                  {t.pipeline_hints.slice(0, 3).map((h) => (
-                    <HintChip key={h} hint={h} />
-                  ))}
+                  {t.pipeline_hints.slice(0, 3).map((h) => <HintChip key={h} hint={h} />)}
                 </div>
               )}
               {t.summary && <div className="summary">{t.summary}</div>}
-            </Link>
+            </div>
           ))}
         </div>
       )}

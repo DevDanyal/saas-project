@@ -158,7 +158,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError(null);
     try {
-      return await post<ProcessStats>(`/emails/process-all/${activeId}`);
+      let total: ProcessStats = { processed: 0, errors: 0, pending: 0 };
+      for (let i = 0; i < 40; i++) {
+        const batch = await post<ProcessStats>(`/emails/process-all/${activeId}?limit=8`);
+        total = {
+          processed: total.processed + (batch.processed || 0),
+          errors: total.errors + (batch.errors || 0),
+          pending: batch.pending ?? 0,
+        };
+        setDataVersion((v) => v + 1);
+        if (!batch.pending || (batch.processed === 0 && batch.errors === 0)) break;
+      }
+      return total;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
