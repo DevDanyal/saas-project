@@ -34,7 +34,7 @@ export function ConnectGmail() {
       {error && <div className="error-banner">{error}</div>}
 
       {!user?.gmail_connected && (
-        <div className="card card-pad" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(135deg,#ecfeff,#f8fafc)" }}>
+        <div className="card card-pad" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "linear-gradient(135deg,#f8f1e5,#fffdfa)" }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15 }}>Connect Gmail to activate your Smart Inbox</div>
             <div className="sub">We read and summarize conversations to prioritize leads, extract actions, and draft replies. Nothing is sent without your approval.</div>
@@ -47,3 +47,4 @@ export function ConnectGmail() {
     </div>
   );
 }
+
