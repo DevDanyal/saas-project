@@ -16,6 +16,7 @@ export default function ThreadPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [busyRead, setBusyRead] = useState(false);
   const [genBusy, setGenBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const reload = useCallback(() => {
     get<ThreadDetail>(`/emails/threads/${id}`)
@@ -121,7 +122,10 @@ export default function ThreadPage() {
 
       {[...thread.emails]
         .sort((a, b) => new Date(a.received_at ?? 0).getTime() - new Date(b.received_at ?? 0).getTime())
-        .map((email) => (
+        .map((email) => {
+          const shortSummary = (email.ai_summary || (email.body || "").replace(/\s+/g, " ").trim()).slice(0, 260) || "(no summary available)";
+          const showFull = !!expanded[email.id];
+          return (
           <div key={email.id} className={`email-card ${email.is_read ? "" : "unread-email"}`} style={!email.is_read ? { borderLeft: "3px solid var(--primary, #a97c2c)" } : undefined}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span className="from" style={{ fontWeight: email.is_read ? 500 : 700 }}>{email.from_addr}</span>
@@ -134,10 +138,12 @@ export default function ThreadPage() {
                 </button>
               </span>
             </div>
-            <div className="body">{email.body || email.ai_summary || "(empty)"}</div>
+            <div className="body summary-clamp">{showFull ? (email.body || "(empty)") : shortSummary}{!showFull && shortSummary.length >= 260 ? "..." : ""}</div>
+            <button className="btn" style={{ marginTop: 6, padding: "2px 8px", fontSize: 12 }} onClick={() => setExpanded((p) => ({ ...p, [email.id]: !p[email.id] }))}>
+              {showFull ? "Show short summary" : "Show original email"}
+            </button>
             <div className="badge-row">
               <MoodChip sentiment={email.sentiment} />
-              {email.ai_summary && <span className="chip neutral">summary: {email.ai_summary}</span>}
             </div>
 
             {email.draft ? (
@@ -174,7 +180,7 @@ export default function ThreadPage() {
               </div>
             )}
           </div>
-        ))}
+        );})}
     </div>
   );
 }

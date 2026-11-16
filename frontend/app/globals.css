@@ -933,3 +933,5 @@ ul.section-list li {
 .thread-row.unread{background:rgba(169,124,44,0.06)}
 .thread-row.unread .subject{font-weight:700;color:var(--ink,#1f2937)}
 .email-card.unread-email{background:rgba(169,124,44,0.03)}
+
+.summary-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}

@@ -180,7 +180,14 @@ export default function InboxPage() {
     if (key === "unread") return stats?.unread ?? 0;
     return stats?.categories?.[key] ?? 0;
   };
+  const visibleSections = SECTIONS.filter((s) => s.key === "" || s.key === category || sectionCount(s.key) > 0);
   const sectionLabel = SECTIONS.find((s) => s.key === category)?.label ?? "All Mail";
+
+  useEffect(() => {
+    if (category !== "" && sectionCount(category) === 0 && stats) {
+      setCategory("");
+    }
+  }, [category, stats]);
 
   return (
     <div>
@@ -204,7 +211,7 @@ export default function InboxPage() {
       </div>
 
       <div className="section-tabs" role="tablist" aria-label="Inbox sections">
-        {SECTIONS.map((s) => (
+        {visibleSections.map((s) => (
           <button
             key={s.key || "all"}
             role="tab"
