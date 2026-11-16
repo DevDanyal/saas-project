@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { formatDate } from "@/lib/format";
@@ -32,7 +32,7 @@ export default function ActionsPage() {
   }
 
   if (!activeId) return <div className="empty"><h2>No account</h2><p>Connect to view extracted action items.</p></div>;
-  if (items === null) return <div className="card card-pad sub">Loading action items…</div>;
+  if (items === null) return <div className="card card-pad sub">Loading action itemsâ€¦</div>;
 
   const open = items.filter((i) => i.status === "open").length;
   const done = items.filter((i) => i.status === "done").length;
@@ -43,7 +43,7 @@ export default function ActionsPage() {
       <div className="page-head">
         <div>
           <h1>Action Items</h1>
-          <div className="sub">{open} open · {done} completed — extracted automatically from your inbox.</div>
+          <div className="sub">{open} open Â· {done} completed â€" extracted automatically from your inbox.</div>
         </div>
         <div className="row" style={{ flexWrap: "wrap" }}>
           {(["open", "done", "cancelled", "all"] as FilterState[]).map((f) => (
@@ -61,7 +61,7 @@ export default function ActionsPage() {
       </div>
 
       {visible.length === 0 ? (
-        <div className="empty"><h2>No action items</h2><p>{filter === "open" ? "You’re all caught up. New tasks will appear here when extracted from emails." : "No items match this filter."}</p></div>
+        <div className="empty"><h2>No action items</h2><p>{filter === "open" ? "Youâ€™re all caught up. New tasks will appear here when extracted from emails." : "No items match this filter."}</p></div>
       ) : (
         <div className="card" style={{ padding: 4 }}>
           {visible.map((i) => (
@@ -69,7 +69,7 @@ export default function ActionsPage() {
               <span className={`chip ${i.status === "done" ? "ok" : i.type === "call" ? "hot" : "warn"}`}>{i.type}</span>
               <div className="desc">
                 <div style={{ fontWeight: 600, fontSize: 13.5, textDecoration: i.status === "done" ? "line-through" : "none", color: i.status === "done" ? "var(--muted)" : "var(--ink)" }}>{i.description}</div>
-                <div className="sub">{[i.contact, i.property, i.due ? `Due ${formatDate(i.due)}` : null].filter(Boolean).join(" · ")}</div>
+                <div className="sub">{[i.contact, i.property, i.due ? `Due ${formatDate(i.due)}` : null].filter(Boolean).join(" Â· ")}</div>
               </div>
               {i.status === "open" ? (
                 <div className="row" style={{ gap: 6 }}>

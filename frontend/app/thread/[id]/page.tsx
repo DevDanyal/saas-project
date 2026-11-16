@@ -33,7 +33,7 @@ export default function ThreadPage() {
   useEffect(() => { void load(); }, [load]);
 
   if (error) return <div className="stack"><Link href="/" className="back-link"><ArrowLeft size={14} /> Back to inbox</Link><div className="error-banner">{error}</div></div>;
-  if (!thread) return <div className="card card-pad sub">Loading conversation…</div>;
+  if (!thread) return <div className="card card-pad sub">Loading conversation...</div>;
 
   const actions = thread.emails.flatMap((e) => e.actions || []);
   const latestEmail = thread.emails[thread.emails.length - 1];
@@ -48,7 +48,7 @@ export default function ThreadPage() {
           <div style={{ minWidth: 0 }}>
             <div className="label">Conversation brief</div>
             <h1 style={{ margin: "0 0 4px", fontSize: 22, letterSpacing: "-.02em" }}>{thread.subject || "(no subject)"}</h1>
-            <div className="sub">{thread.email_count} messages · Last activity {formatDateTime(thread.last_activity_at)}</div>
+            <div className="sub">{thread.email_count} messages Â· Last activity {formatDateTime(thread.last_activity_at)}</div>
           </div>
           <div className="row" style={{ flexWrap: "wrap" }}>
             <ScorePill score={thread.priority_score} />
@@ -103,7 +103,7 @@ export default function ThreadPage() {
                   <div key={a.id} style={{ padding: 10, border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface-muted)" }}>
                     <div className="row" style={{ justifyContent: "space-between" }}><span className="chip warn">{a.type}</span><span className="sub">{a.status}</span></div>
                     <div style={{ fontSize: 13.5, marginTop: 6 }}>{a.description}</div>
-                    <div className="sub" style={{ marginTop: 4 }}>{[a.due && `Due ${formatDateTime(a.due)}`, a.contact, a.property].filter(Boolean).join(" · ")}</div>
+                    <div className="sub" style={{ marginTop: 4 }}>{[a.due && `Due ${formatDateTime(a.due)}`, a.contact, a.property].filter(Boolean).join(" Â· ")}</div>
                   </div>
                 ))}
               </div>
@@ -112,10 +112,10 @@ export default function ThreadPage() {
           <div className="panel">
             <h3 className="row" style={{ gap: 8 }}><Tag size={16} /> Context</h3>
             <div className="kv">
-              <div className="k">From</div><div style={{ wordBreak: "break-all" }}>{thread.last_from || "—"}</div>
+              <div className="k">From</div><div style={{ wordBreak: "break-all" }}>{thread.last_from || "-"}</div>
               <div className="k">Category</div><div>{thread.category || "Uncategorized"}</div>
-              <div className="k">Priority</div><div>{thread.priority_score ?? "—"}</div>
-              <div className="k">Reply status</div><div>{thread.reply_status || "—"}</div>
+              <div className="k">Priority</div><div>{thread.priority_score ?? "-"}</div>
+              <div className="k">Reply status</div><div>{thread.reply_status || "-"}</div>
               <div className="k">Messages</div><div>{thread.email_count}</div>
             </div>
           </div>

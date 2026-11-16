@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -16,7 +16,7 @@ import { useUser } from "@/lib/user-context";
 type Queue = "home" | "urgent" | "needs_reply" | "hot_leads" | "waiting" | "all";
 
 const QUEUES: { id: Queue; label: string; desc: string }[] = [
-  { id: "home", label: "Home", desc: "Today’s priorities" },
+  { id: "home", label: "Home", desc: "Todayâ€™s priorities" },
   { id: "urgent", label: "Urgent", desc: "Needs attention now" },
   { id: "needs_reply", label: "Needs reply", desc: "Unanswered threads" },
   { id: "hot_leads", label: "Hot leads", desc: "High-intent buyers/sellers" },
@@ -85,7 +85,7 @@ function DetailPane({ thread, onRefresh }: { thread: ThreadSummary | null; onRef
           <div style={{ minWidth: 0 }}>
             <div className="label">AI brief</div>
             <h3 style={{ margin: 0 }}>{thread.subject || "(no subject)"}</h3>
-            <div className="sub">From {sender(thread.last_from)} · {formatTime(thread.last_activity_at)}</div>
+            <div className="sub">From {sender(thread.last_from)} Â· {formatTime(thread.last_activity_at)}</div>
           </div>
           <Link href={`/thread/${thread.id}`} className="btn sm ghost">Open <ArrowRight size={14} /></Link>
         </div>
@@ -113,7 +113,7 @@ function DetailPane({ thread, onRefresh }: { thread: ThreadSummary | null; onRef
 
       <div className="panel">
         <h3>Conversation</h3>
-        {loading && <div className="sub">Loading messages…</div>}
+        {loading && <div className="sub">Loading messagesâ€¦</div>}
         {!loading && detail?.emails?.length ? (
           <div className="stack" style={{ gap: 10 }}>
             {detail.emails.slice(-3).map((e) => (
@@ -240,13 +240,13 @@ export default function InboxPage() {
           <div className="pill-row" style={{ marginTop: 2 }}>
             {QUEUES.map((q) => (
               <button key={q.id} className={`pill ${queue === q.id ? "active" : ""}`} onClick={() => setQueue(q.id)}>
-                {q.label} · {counts[q.id]}
+                {q.label} Â· {counts[q.id]}
               </button>
             ))}
           </div>
 
           <div className="toolbar">
-            <div className="search"><Search size={15} color="var(--muted)" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sender, subject, summary…" /></div>
+            <div className="search"><Search size={15} color="var(--muted)" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sender, subject, summaryâ€¦" /></div>
             <button className="btn sm" onClick={() => void onProcess()} disabled={busy}><Sparkles size={14} /> Process</button>
           </div>
 
@@ -259,7 +259,7 @@ export default function InboxPage() {
           )}
 
           <div className="thread-list">
-            {!loaded && <div className="card card-pad sub">Loading inbox…</div>}
+            {!loaded && <div className="card card-pad sub">Loading inboxâ€¦</div>}
             {loaded && list.length === 0 && (
               <div className="empty"><h2>No conversations in this view</h2><p>Try a different queue, sync your inbox, or run AI processing.</p></div>
             )}
@@ -272,7 +272,7 @@ export default function InboxPage() {
                     <span className="thread-time">{formatTime(t.last_activity_at)}</span>
                   </div>
                   <div className="thread-subject">{t.subject || "(no subject)"}</div>
-                  <div className="thread-summary">{t.summary || "AI summary pending — run processing to analyze this thread."}</div>
+                  <div className="thread-summary">{t.summary || "AI summary pending - run processing to analyze this thread."}</div>
                   <div className="thread-meta">
                     <ScorePill score={t.priority_score} />
                     <CategoryChip category={t.category} />
