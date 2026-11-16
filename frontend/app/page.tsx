@@ -16,7 +16,7 @@ import { useUser } from "@/lib/user-context";
 type Queue = "home" | "urgent" | "needs_reply" | "hot_leads" | "waiting" | "all";
 
 const QUEUES: { id: Queue; label: string; desc: string }[] = [
-  { id: "home", label: "Home", desc: "Todayâ€™s priorities" },
+  { id: "home", label: "Home", desc: "Today's priorities" },
   { id: "urgent", label: "Urgent", desc: "Needs attention now" },
   { id: "needs_reply", label: "Needs reply", desc: "Unanswered threads" },
   { id: "hot_leads", label: "Hot leads", desc: "High-intent buyers/sellers" },
@@ -113,7 +113,7 @@ function DetailPane({ thread, onRefresh }: { thread: ThreadSummary | null; onRef
 
       <div className="panel">
         <h3>Conversation</h3>
-        {loading && <div className="sub">Loading messagesâ€¦</div>}
+        {loading && <div className="sub">Loading messages…</div>}
         {!loading && detail?.emails?.length ? (
           <div className="stack" style={{ gap: 10 }}>
             {detail.emails.slice(-3).map((e) => (
@@ -240,7 +240,7 @@ export default function InboxPage() {
           <div className="pill-row" style={{ marginTop: 2 }}>
             {QUEUES.map((q) => (
               <button key={q.id} className={`pill ${queue === q.id ? "active" : ""}`} onClick={() => setQueue(q.id)}>
-                {q.label} Â· {counts[q.id]}
+                {q.label} · {counts[q.id]}
               </button>
             ))}
           </div>
@@ -259,7 +259,7 @@ export default function InboxPage() {
           )}
 
           <div className="thread-list">
-            {!loaded && <div className="card card-pad sub">Loading inboxâ€¦</div>}
+            {!loaded && <div className="card card-pad sub">Loading inbox…</div>}
             {loaded && list.length === 0 && (
               <div className="empty"><h2>No conversations in this view</h2><p>Try a different queue, sync your inbox, or run AI processing.</p></div>
             )}

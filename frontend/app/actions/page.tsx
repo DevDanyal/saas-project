@@ -32,7 +32,7 @@ export default function ActionsPage() {
   }
 
   if (!activeId) return <div className="empty"><h2>No account</h2><p>Connect to view extracted action items.</p></div>;
-  if (items === null) return <div className="card card-pad sub">Loading action itemsâ€¦</div>;
+  if (items === null) return <div className="card card-pad sub">Loading action items…</div>;
 
   const open = items.filter((i) => i.status === "open").length;
   const done = items.filter((i) => i.status === "done").length;
