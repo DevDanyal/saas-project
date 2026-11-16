@@ -2,31 +2,58 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, useState } from "react";
-import { Mail, Menu, X, Home, Inbox, PenSquare, Bell, Settings } from "lucide-react";
+import { Suspense, useMemo, useState } from "react";
+import {
+  Bell, CheckSquare, CreditCard, FileBarChart, Home, Inbox, LogOut,
+  Menu, Settings, Sparkles, Users, X,
+} from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { ConnectGmail } from "@/components/connect-gmail";
 import { AuthScreen } from "@/components/auth/auth-screen";
 
 const NAV = [
-  { href: "/", label: "Inbox" },
-  { href: "/actions", label: "Action Items" },
-  { href: "/digest", label: "Daily Digest" },
-  { href: "/alerts", label: "Alerts" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", label: "Inbox", icon: Inbox },
+  { href: "/actions", label: "Action Items", icon: CheckSquare },
+  { href: "/digest", label: "Daily Digest", icon: Sparkles },
+  { href: "/alerts", label: "Alerts", icon: Bell, badgeKey: "alerts" as const },
+  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/teams", label: "Teams", icon: Users },
+  { href: "/reports", label: "Reports", icon: FileBarChart },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+const MOBILE_TABS = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/", label: "Inbox", icon: Inbox, exact: true },
+  { href: "/actions", label: "Actions", icon: CheckSquare },
+  { href: "/alerts", label: "Alerts", icon: Bell, badgeKey: "alerts" as const },
+  { href: "/settings", label: "More", icon: Settings },
+];
+
+function titleFor(pathname: string) {
+  if (pathname === "/") return "Smart Inbox";
+  if (pathname.startsWith("/thread")) return "Conversation";
+  const item = NAV.find((n) => n.href !== "/" && pathname.startsWith(n.href));
+  return item?.label ?? "Smart Inbox";
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, authChecked, unreadCount } = useUser();
+  const { user, authChecked, unreadCount, logout, syncInbox, busy } = useUser();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  const activeHref = useMemo(() => {
+    if (pathname === "/") return "/";
+    const found = NAV.find((n) => n.href !== "/" && pathname.startsWith(n.href));
+    return found?.href ?? "/";
+  }, [pathname]);
 
   if (!authChecked) {
     return (
-      <div className="flex min-h-[100dvh] items-center justify-center bg-[#EEF2F9]">
-        <div className="flex items-center gap-3 text-[13px] text-slate-500">
-          <span className="spin !w-4 !h-4 border-slate-300 border-t-indigo-600" />
-          Loading workspace…
+      <div className="app-bg" style={{ minHeight: "100dvh", display: "grid", placeItems: "center" }}>
+        <div className="card card-pad row" style={{ gap: 10 }}>
+          <span className="spin" /> <span className="sub">Loading your workspace…</span>
         </div>
       </div>
     );
@@ -34,74 +61,126 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!user) return <AuthScreen />;
 
   const initial = (user.email?.match(/[A-Za-z0-9]/)?.[0] ?? "?").toUpperCase();
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+
+  async function handleSync() {
+    setSyncMsg(null);
+    try {
+      const s = await syncInbox();
+      setSyncMsg(`Synced ${s.emails_added} new emails`);
+    } catch {
+      setSyncMsg("Sync failed");
+    }
+    setTimeout(() => setSyncMsg(null), 2500);
+  }
 
   return (
-    <div className="app-shell min-h-screen bg-[#EEF2F9]">
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-4 lg:px-6">
-          <div className="flex items-center gap-3">
-            <button className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700" onClick={() => setDrawerOpen(true)} aria-label="Open menu">
-              <Menu size={18} />
-            </button>
-            <Link href="/" className="flex items-center gap-2 font-semibold text-slate-900">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white"><Mail size={16} /></span>
-              <span className="hidden sm:inline">Smart Inbox</span>
-            </Link>
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-1">
-            {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className={`relative rounded-lg px-3 py-2 text-sm font-medium transition ${isActive(n.href) ? "text-indigo-700 bg-indigo-50" : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"}`}>
-                {n.label}
-                {n.href === "/alerts" && unreadCount > 0 && <span className="ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white">{unreadCount}</span>}
+    <div className="app-bg shell">
+      <aside className="sidebar" aria-label="Primary">
+        <Link href="/" className="brand">
+          <span className="brand-mark"><Inbox size={16} /></span>
+          <span>Smart Inbox</span>
+        </Link>
+        <nav className="nav-group">
+          {NAV.map((n) => {
+            const Icon = n.icon;
+            const active = n.href === "/" ? activeHref === "/" && !pathname.startsWith("/thread") || pathname.startsWith("/thread") ? n.href === "/" : false : activeHref === n.href;
+            const isActive = n.href === "/" ? (pathname === "/" || pathname.startsWith("/thread")) : pathname.startsWith(n.href);
+            return (
+              <Link key={n.href + n.label} href={n.href} className={`nav-item ${isActive ? "active" : ""}`}>
+                <Icon size={16} /> <span>{n.label}</span>
+                {n.badgeKey === "alerts" && unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}
               </Link>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-2 py-1 shadow-sm">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-semibold text-white">{initial}</span>
-              <span className="max-w-[180px] truncate text-xs text-slate-600">{user.email}</span>
+            );
+          })}
+        </nav>
+        <div className="sidebar-foot">
+          <div className="user-pill">
+            <span className="avatar">{initial}</span>
+            <div className="user-meta">
+              <div className="user-email">{user.email}</div>
+              <div className="user-sub">{user.gmail_connected ? "Gmail connected" : "Gmail not connected"}</div>
             </div>
-            <span className="sm:hidden inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">{initial}</span>
           </div>
+          <button className="btn ghost sm" onClick={() => void logout()} style={{ justifyContent: "flex-start" }}>
+            <LogOut size={14} /> Sign out
+          </button>
         </div>
-      </header>
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <div className="row">
+            <button className="btn icon-btn ghost" onClick={() => setDrawerOpen(true)} aria-label="Open menu" style={{ display: "none" }} id="mobile-menu-btn" />
+            <div>
+              <div className="topbar-title">{titleFor(pathname)}</div>
+              <div className="topbar-sub">Triage, reply, and stay ahead of every client.</div>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <button className="btn sm" onClick={() => void handleSync()} disabled={busy || !user.gmail_connected}>
+              {busy ? <span className="spin" /> : null} Sync
+            </button>
+            <span className="avatar" title={user.email}>{initial}</span>
+          </div>
+        </header>
+
+        <main className="content">
+          <Suspense fallback={null}><ConnectGmail /></Suspense>
+          {syncMsg && <div className="notice-banner" style={{ marginBottom: 12 }}>{syncMsg}</div>}
+          {children}
+        </main>
+      </div>
 
       {drawerOpen && (
         <>
-          <div className="drawer-backdrop lg:hidden" onClick={() => setDrawerOpen(false)} />
-          <aside className="drawer lg:hidden">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 font-semibold"><span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white"><Mail size={16} /></span>Smart Inbox</div>
-              <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200" onClick={() => setDrawerOpen(false)} aria-label="Close menu"><X size={16} /></button>
+          <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
+          <aside className="drawer" aria-label="Menu">
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <div className="brand" style={{ padding: 0 }}><span className="brand-mark"><Inbox size={16} /></span>Smart Inbox</div>
+              <button className="btn icon-btn ghost" onClick={() => setDrawerOpen(false)} aria-label="Close"><X size={16} /></button>
             </div>
-            <nav className="flex flex-col gap-1">
-              {NAV.map((n) => (
-                <Link key={n.href} href={n.href} onClick={() => setDrawerOpen(false)} className={`rounded-lg px-3 py-2 text-sm font-medium ${isActive(n.href) ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50"}`}>
-                  {n.label}
-                </Link>
-              ))}
+            <nav className="nav-group">
+              {NAV.map((n) => {
+                const Icon = n.icon;
+                const isActive = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+                return (
+                  <Link key={n.href} href={n.href} onClick={() => setDrawerOpen(false)} className={`nav-item ${isActive ? "active" : ""}`}>
+                    <Icon size={16} /> {n.label}
+                    {n.badgeKey === "alerts" && unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}
+                  </Link>
+                );
+              })}
             </nav>
+            <div className="sidebar-foot" style={{ borderTop: "1px solid var(--border)", marginTop: "auto" }}>
+              <div className="user-pill"><span className="avatar">{initial}</span><div className="user-meta"><div className="user-email">{user.email}</div></div></div>
+              <button className="btn sm" onClick={() => { void handleSync(); }} disabled={busy}>Sync inbox</button>
+              <button className="btn ghost sm" onClick={() => void logout()}><LogOut size={14} /> Sign out</button>
+            </div>
           </aside>
         </>
       )}
 
-      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-5 lg:px-6 lg:pb-8">
-        <Suspense fallback={null}><ConnectGmail /></Suspense>
-        {children}
-      </main>
-
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200/80 bg-white/95 backdrop-blur lg:hidden">
-        <div className="mx-auto grid max-w-[520px] grid-cols-5 px-2 py-2 text-[11px] text-slate-500">
-          <Link href="/" className={`flex flex-col items-center gap-1 py-1 ${pathname === "/" ? "text-indigo-600" : ""}`}><Home size={18} /><span>Home</span></Link>
-          <Link href="/" className={`flex flex-col items-center gap-1 py-1 ${pathname === "/" ? "text-indigo-600" : ""}`}><Inbox size={18} /><span>Mail</span></Link>
-          <Link href="/actions" className="flex flex-col items-center gap-1 py-1"><PenSquare size={18} /><span>Compose</span></Link>
-          <Link href="/alerts" className={`relative flex flex-col items-center gap-1 py-1 ${isActive("/alerts") ? "text-indigo-600" : ""}`}><Bell size={18} /><span>Alerts</span>{unreadCount > 0 && <span className="absolute right-4 top-0 h-2 w-2 rounded-full bg-rose-500" />}</Link>
-          <Link href="/settings" className={`flex flex-col items-center gap-1 py-1 ${isActive("/settings") ? "text-indigo-600" : ""}`}><Settings size={18} /><span>Settings</span></Link>
-        </div>
+      <nav className="mobile-tabs" aria-label="Primary">
+        {MOBILE_TABS.map((t, i) => {
+          const Icon = t.icon;
+          const isActive = t.href === "/alerts" ? pathname.startsWith("/alerts")
+            : t.href === "/actions" ? pathname.startsWith("/actions")
+            : t.href === "/settings" ? (pathname.startsWith("/settings") || pathname.startsWith("/billing") || pathname.startsWith("/teams") || pathname.startsWith("/reports"))
+            : i === 1 ? (pathname === "/" || pathname.startsWith("/thread"))
+            : i === 0 ? pathname === "/" : false;
+          return (
+            <Link key={t.label} href={t.href} className={`mobile-tab ${isActive ? "active" : ""}`} onClick={() => { if (t.label === "More") setDrawerOpen(true); }}>
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <Icon size={18} />
+                {t.badgeKey === "alerts" && unreadCount > 0 && <span style={{ position: "absolute", top: -4, right: -6, width: 8, height: 8, borderRadius: 99, background: "var(--hot)" }} />}
+              </span>
+              <span>{t.label}</span>
+            </Link>
+          );
+        })}
       </nav>
+
+      {syncMsg && <div className="toast">{syncMsg}</div>}
     </div>
   );
 }

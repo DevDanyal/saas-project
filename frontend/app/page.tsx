@@ -1,439 +1,298 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Paperclip, Link as LinkIcon, Send, X, Sparkles, ChevronDown, SlidersHorizontal,
+  AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ChevronRight,
+  Clock, Filter, Inbox, Search, Send, Sparkles, Zap,
 } from "lucide-react";
 import { get, patch } from "@/lib/api";
+import {
+  CategoryChip, FlagChip, ReplyStatusChip, ScorePill, formatTime,
+} from "@/lib/format";
 import type { InboxStats, ThreadDetail, ThreadSummary } from "@/lib/types";
 import { useUser } from "@/lib/user-context";
 
-type Tone = "Formal" | "Concise" | "Friendly" | "Empathetic";
-type Priority = "High" | "Medium" | "Low";
-type Tab = "Inbox" | "Action Items" | "Daily Digest" | "Alerts" | "Settings";
-type Filter = "All Mail" | "Unread" | "LinkedIn" | "High Priority";
-type MobileFilter = "All" | "Categories" | "Action Items" | "Friendly";
+type Queue = "home" | "urgent" | "needs_reply" | "hot_leads" | "waiting" | "all";
 
-const TONES: Tone[] = ["Formal", "Concise", "Friendly", "Empathetic"];
-const TABS: Tab[] = ["Inbox", "Action Items", "Daily Digest", "Alerts", "Settings"];
+const QUEUES: { id: Queue; label: string; desc: string }[] = [
+  { id: "home", label: "Home", desc: "Today’s priorities" },
+  { id: "urgent", label: "Urgent", desc: "Needs attention now" },
+  { id: "needs_reply", label: "Needs reply", desc: "Unanswered threads" },
+  { id: "hot_leads", label: "Hot leads", desc: "High-intent buyers/sellers" },
+  { id: "waiting", label: "Waiting", desc: "Replied, awaiting response" },
+  { id: "all", label: "All mail", desc: "Everything" },
+];
 
-function sparkPoints(data: number[]) {
-  const max = Math.max(...data, 1);
-  return data.map((v, i) => `${(i / (data.length - 1)) * 100},${30 - (v / max) * 24}`).join(" ");
-}
-function Sparkline({ color, data }: { color: string; data: number[] }) {
-  return (
-    <svg viewBox="0 0 100 30" className="sparkline" preserveAspectRatio="none" aria-hidden>
-      <polyline points={sparkPoints(data)} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function senderDisplay(from: string | null | undefined) {
+function sender(from: string | null | undefined) {
   const raw = (from || "Unknown").trim();
-  const name = raw.includes("<") ? raw.split("<")[0].trim().replace(/"/g, "") || raw : raw.split("@")[0] || raw;
-  const lower = raw.toLowerCase();
-  const platform = lower.includes("linkedin") || name.toLowerCase().includes("linkedin") ? "LinkedIn" : lower.includes("gmail") ? "Gmail" : lower.includes("outlook") ? "Outlook" : "";
-  return { name, label: platform ? `${name} on ${platform}` : name, platform };
+  if (raw.includes("<")) return raw.split("<")[0].trim().replace(/"/g, "") || raw;
+  return raw.split("@")[0] || raw;
 }
 
-function timeLabel(iso: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  return sameDay
-    ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function priorityReason(t: ThreadSummary): string {
+  if (t.flags?.length) return t.flags.map((f) => f.replace(/_/g, " ")).join(", ");
+  if ((t.priority_score ?? 0) >= 85) return "High urgency signals detected";
+  if ((t.priority_score ?? 0) >= 60) return "Likely time-sensitive";
+  return "Routine conversation";
 }
 
-function priorityFromScore(score: number | null | undefined): Priority {
-  if ((score ?? 0) >= 80) return "High";
-  if ((score ?? 0) >= 60) return "Medium";
-  return "Low";
-}
-function scoreForPriority(p: Priority) { return p === "High" ? 90 : p === "Medium" ? 70 : 35; }
-
-function baseDraft(thread: ThreadSummary | null, detail: ThreadDetail | null) {
-  if (!thread) return "Select an email to generate a reply draft.";
-  const summary = detail?.summary || thread.summary || `regarding "${thread.subject || "your message"}"`;
-  return `Thank you for reaching out. I reviewed your message ${summary ? `about ${summary}` : ""}. I’d be happy to help and can follow up with the details you need.\n\nPlease let me know your preferred timing, and I’ll get back to you promptly.`;
-}
-function rewriteDraft(base: string, tone: Tone, name: string) {
-  const body = base.trim();
-  const greet = `Dear ${name || "there"},`;
-  if (tone === "Concise") return `${greet}\n\n${body.split(/\n+/).slice(0, 2).join(" ")}\n\nBest regards,\nDev Danyal`;
-  if (tone === "Friendly") return `${greet}\n\nHope you’re doing well! ${body}\n\nWarmly,\nDev Danyal`;
-  if (tone === "Empathetic") return `${greet}\n\nThank you so much for your message — I appreciate you reaching out. ${body}\n\nKind regards,\nDev Danyal`;
-  return `${greet}\n\n${body}\n\nSincerely,\nDev Danyal`;
+function matchQueue(t: ThreadSummary, q: Queue) {
+  if (q === "home" || q === "all") return true;
+  if (q === "urgent") return (t.priority_score ?? 0) >= 80 || t.flags?.some((f) => /complaint|urgent|deadline|closing/.test(f));
+  if (q === "needs_reply") return t.reply_status === "needs_reply" || t.reply_status === "draft_ready";
+  if (q === "hot_leads") return (t.category === "lead" || t.flags?.includes("hot_lead")) && (t.priority_score ?? 0) >= 60;
+  if (q === "waiting") return t.reply_status === "replied";
+  return true;
 }
 
-type AssistantPanelProps = {
-  mobile?: boolean;
-  selected: ThreadSummary | null;
-  tone: Tone;
-  onTone: (t: Tone) => void;
-  shownDraft: string;
-  onDraftChange: (v: string) => void;
-  onSend: () => void;
-  onClose: () => void;
-};
-
-function AssistantPanel({ mobile, selected, tone, onTone, shownDraft, onDraftChange, onSend, onClose }: AssistantPanelProps) {
+function DraftPanel({ thread, detail }: { thread: ThreadSummary; detail: ThreadDetail | null }) {
+  const name = sender(thread.last_from);
+  const base = detail?.summary || thread.summary || thread.subject || "your message";
+  const suggested = `Hi ${name},\n\nThanks for reaching out. I reviewed your message about ${base}. I'd be happy to help and can follow up with the details you need.\n\nLet me know your preferred timing and I'll get back to you promptly.\n\nBest,\n[Your name]`;
+  const [text, setText] = useState(suggested);
+  useEffect(() => { setText(suggested); }, [suggested]);
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">AI Inbox Assistant</h2>
-          <div className="mt-1 inline-flex items-center rounded-full bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-white">100% Match</div>
-        </div>
-        {mobile ? (
-          <button onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600"><X size={16} /></button>
-        ) : null}
+    <div className="panel" style={{ marginTop: 12 }}>
+      <div className="label">AI draft reply</div>
+      <textarea className="textarea" style={{ minHeight: 140 }} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="draft-actions">
+        <button className="btn primary"><Send size={14} /> Send reply</button>
+        <button className="btn">Save draft</button>
+        <button className="btn ghost">Regenerate</button>
       </div>
-
-      <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-slate-500">Tone</div>
-        <div className="flex flex-wrap gap-2">
-          {TONES.map((t) => (
-            <button key={t} onClick={() => onTone(t)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${tone === t ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200"}`}>
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 flex-1">
-        <div className="mb-2 text-xs font-medium text-slate-500">Draft</div>
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm">
-          <textarea
-            value={shownDraft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            className="min-h-[220px] w-full resize-none border-0 bg-transparent text-sm leading-6 text-slate-700 outline-none"
-            placeholder="Select an email to generate a draft..."
-          />
-        </div>
-        {selected && <div className="mt-2 text-[11px] text-slate-500">Replying to: {senderDisplay(selected.last_from).label}</div>}
-      </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-slate-200/80 pt-3">
-        <div className="flex items-center gap-2 text-slate-400">
-          <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg hover:bg-slate-100" title="Attach"><Paperclip size={16} /></button>
-          <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg hover:bg-slate-100" title="Insert link"><LinkIcon size={16} /></button>
-        </div>
-        <button onClick={onSend} disabled={!selected} className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50" aria-label="Send reply">
-          <Send size={16} />
-        </button>
-      </div>
+      <div className="sub" style={{ marginTop: 6 }}>Always review before sending. Nothing is sent automatically.</div>
     </div>
   );
 }
 
-function Placeholder({ title, text }: { title: string; text: string }) {
+function DetailPane({ thread, onRefresh }: { thread: ThreadSummary | null; onRefresh: () => void }) {
+  const [detail, setDetail] = useState<ThreadDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!thread) { setDetail(null); return; }
+    let c = false; setLoading(true);
+    get<ThreadDetail>(`/emails/threads/${thread.id}`)
+      .then((d) => { if (!c) setDetail(d); }).catch(() => { if (!c) setDetail(null); })
+      .finally(() => { if (!c) setLoading(false); });
+    return () => { c = true; };
+  }, [thread?.id]);
+  if (!thread) return <div className="panel"><div className="empty"><h2>Select a conversation</h2><p>Choose a thread to see the AI brief, messages, and draft reply.</p></div></div>;
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-10 text-center shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-      <p className="mt-2 text-sm text-slate-500">{text}</p>
-      <p className="mt-4 text-xs text-slate-400">Switch to Inbox to manage emails and drafts.</p>
-    </div>
-  );
-}
+    <div className="stack">
+      <div className="panel ai-brief">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="label">AI brief</div>
+            <h3 style={{ margin: 0 }}>{thread.subject || "(no subject)"}</h3>
+            <div className="sub">From {sender(thread.last_from)} · {formatTime(thread.last_activity_at)}</div>
+          </div>
+          <Link href={`/thread/${thread.id}`} className="btn sm ghost">Open <ArrowRight size={14} /></Link>
+        </div>
+        <div className="row" style={{ flexWrap: "wrap", marginTop: 8 }}>
+          <ScorePill score={thread.priority_score} />
+          <CategoryChip category={thread.category} />
+          <ReplyStatusChip status={thread.reply_status} />
+          {(thread.flags || []).slice(0, 3).map((f) => <FlagChip key={f} flag={f} />)}
+        </div>
+        <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--ink-soft)" }}>{detail?.summary || thread.summary || "AI summary will appear after processing."}</p>
+        <div className="brief-reason"><strong>Why prioritized:</strong> {priorityReason(thread)}</div>
+      </div>
 
-function EmptyState() {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-10 text-center">
-      <h3 className="text-base font-semibold text-slate-900">No emails found</h3>
-      <p className="mt-1 text-sm text-slate-500">Try a different filter or sync your inbox.</p>
+      <div className="panel">
+        <h3>Suggested next step</h3>
+        <div className="sub">
+          {thread.reply_status === "needs_reply" || thread.reply_status === "draft_ready"
+            ? "Reply promptly with a clear answer and proposed next step. Review the draft below."
+            : thread.reply_status === "replied"
+            ? "Waiting on their response. Set a follow-up if you need one."
+            : "Review this thread and decide if a response or task is needed."}
+        </div>
+        <DraftPanel thread={thread} detail={detail} />
+      </div>
+
+      <div className="panel">
+        <h3>Conversation</h3>
+        {loading && <div className="sub">Loading messages…</div>}
+        {!loading && detail?.emails?.length ? (
+          <div className="stack" style={{ gap: 10 }}>
+            {detail.emails.slice(-3).map((e) => (
+              <div key={e.id} style={{ padding: 10, border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface-muted)" }}>
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <strong style={{ fontSize: 13 }}>{sender(e.from_addr)}</strong>
+                  <span className="sub">{formatTime(e.received_at)}</span>
+                </div>
+                <div className="sub" style={{ marginTop: 4, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                  {e.ai_summary || e.body?.slice(0, 280) || "(no content)"}
+                </div>
+              </div>
+            ))}
+            {detail.emails.length > 3 && <Link href={`/thread/${thread.id}`} className="back-link">View full thread ({detail.emails.length} messages)</Link>}
+          </div>
+        ) : !loading ? <div className="sub">No messages loaded yet. Sync and process to see details.</div> : null}
+      </div>
     </div>
   );
 }
 
 export default function InboxPage() {
-  const { activeId, syncInbox, dataVersion, refreshData } = useUser();
+  const { activeId, processAll, dataVersion, busy } = useUser();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [stats, setStats] = useState<InboxStats | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [activeTab, setActiveTab] = useState<Tab>("Inbox");
-  const [filter, setFilter] = useState<Filter>("All Mail");
-  const [mobileFilter, setMobileFilter] = useState<MobileFilter>("All");
+  const [queue, setQueue] = useState<Queue>("home");
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tone, setTone] = useState<Tone>("Formal");
-  const [draftText, setDraftText] = useState("");
-  const [draftEditedFor, setDraftEditedFor] = useState<string | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<ThreadDetail | null>(null);
-  const [priorityOverrides, setPriorityOverrides] = useState<Record<string, Priority>>({});
-  const [spammed, setSpammed] = useState<Set<string>>(new Set());
-  const [priorityMenu, setPriorityMenu] = useState<string | null>(null);
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!activeId) return;
-    let cancelled = false;
-    get<{ threads: ThreadSummary[] }>(`/emails/inbox/${activeId}?limit=100&sort=priority&order=desc`)
-      .then((r) => { if (!cancelled) { setThreads(r.threads || []); setError(null); } })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setLoaded(true); });
-    get<InboxStats>(`/emails/stats/${activeId}`).then((s) => { if (!cancelled) setStats(s); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [activeId, dataVersion]);
+    try {
+      const [tr, st] = await Promise.all([
+        get<{ threads: ThreadSummary[] }>(`/emails/inbox/${activeId}?limit=100&sort=priority&order=desc`),
+        get<InboxStats>(`/emails/stats/${activeId}`).catch(() => null),
+      ]);
+      setThreads(tr.threads || []); setStats(st); setError(null);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoaded(true); }
+  }, [activeId]);
 
-  const baseThreads = useMemo(() => threads.filter((t) => !spammed.has(t.id)), [threads, spammed]);
-  const effectivePriority = useCallback((t: ThreadSummary): Priority => priorityOverrides[t.id] ?? priorityFromScore(t.priority_score), [priorityOverrides]);
+  useEffect(() => { void load(); }, [load, dataVersion]);
+
+  const counts = useMemo(() => {
+    const c: Record<Queue, number> = { home: threads.length, urgent: 0, needs_reply: 0, hot_leads: 0, waiting: 0, all: threads.length };
+    threads.forEach((t) => {
+      if (matchQueue(t, "urgent")) c.urgent++;
+      if (matchQueue(t, "needs_reply")) c.needs_reply++;
+      if (matchQueue(t, "hot_leads")) c.hot_leads++;
+      if (matchQueue(t, "waiting")) c.waiting++;
+    });
+    return c;
+  }, [threads]);
 
   const filtered = useMemo(() => {
-    let list = baseThreads;
-    if (activeTab === "Action Items") list = list.filter((t) => t.reply_status === "draft_ready" || t.reply_status === "needs_reply");
-    else if (activeTab === "Alerts") list = list.filter((t) => (t.priority_score ?? 0) >= 80 || t.unread > 0);
-    if (filter === "Unread") list = list.filter((t) => t.unread > 0);
-    else if (filter === "LinkedIn") list = list.filter((t) => senderDisplay(t.last_from).platform === "LinkedIn" || /linkedin/i.test(t.subject || "") || /linkedin/i.test(t.summary || ""));
-    else if (filter === "High Priority") list = list.filter((t) => effectivePriority(t) === "High");
-    if (mobileFilter === "Categories") list = list.filter((t) => !!t.category);
-    else if (mobileFilter === "Action Items") list = list.filter((t) => t.reply_status === "draft_ready" || t.reply_status === "needs_reply");
-    else if (mobileFilter === "Friendly") list = list.filter((t) => (t.category || "").includes("client") || (t.category || "").includes("lead"));
-    return list;
-  }, [baseThreads, activeTab, filter, mobileFilter, effectivePriority]);
+    const q = search.trim().toLowerCase();
+    return threads.filter((t) => {
+      if (!matchQueue(t, queue)) return false;
+      if (!q) return true;
+      const hay = `${t.subject} ${t.summary || ""} ${t.last_from || ""} ${t.category || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [threads, queue, search]);
+
+  const homeGroups = useMemo(() => {
+    if (queue !== "home") return null;
+    const hot = threads.filter((t) => matchQueue(t, "hot_leads")).slice(0, 5);
+    const urgent = threads.filter((t) => matchQueue(t, "urgent") && !hot.includes(t)).slice(0, 5);
+    const needReply = threads.filter((t) => matchQueue(t, "needs_reply") && !hot.includes(t) && !urgent.includes(t)).slice(0, 6);
+    return { hot, urgent, needReply };
+  }, [threads, queue]);
 
   const selected = useMemo(() => {
     if (selectedId && filtered.some((t) => t.id === selectedId)) return filtered.find((t) => t.id === selectedId)!;
-    return filtered[0] || baseThreads[0] || null;
-  }, [selectedId, filtered, baseThreads]);
+    return filtered[0] || null;
+  }, [filtered, selectedId]);
 
-  useEffect(() => {
-    if (!selected) return;
-    let cancelled = false;
-    get<ThreadDetail>(`/emails/threads/${selected.id}`)
-      .then((d) => { if (!cancelled) setSelectedDetail(d); })
-      .catch(() => { if (!cancelled) setSelectedDetail(null); });
-    return () => { cancelled = true; };
-  }, [selected]);
+  async function onProcess() {
+    try { const r = await processAll(); setNotice(`Processed ${r.processed} emails`); await load(); }
+    catch { setNotice("Processing failed"); }
+    setTimeout(() => setNotice(null), 2500);
+  }
 
-  const detailFor = selectedDetail && selectedDetail.id === selected?.id ? selectedDetail : null;
-  const computedDraft = useMemo(() => {
-    if (!selected) return "";
-    const name = senderDisplay(selected.last_from).name;
-    return rewriteDraft(baseDraft(selected, detailFor), tone, name);
-  }, [selected, detailFor, tone]);
+  if (!activeId) return <div className="empty"><h2>Connect Gmail to get started</h2><p>Once connected, your inbox will be prioritized and summarized here.</p></div>;
 
-  const draftEdited = draftEditedFor === selected?.id;
-  const shownDraft = draftEdited ? draftText : computedDraft;
-
-  const totalUnread = baseThreads.reduce((a, t) => a + (t.unread || 0), 0) || stats?.unread || 0;
-  const highCount = baseThreads.filter((t) => effectivePriority(t) === "High").length;
-  const repliesReady = baseThreads.filter((t) => t.reply_status === "draft_ready").length || stats?.pending_drafts || 0;
-  const totalEmails = baseThreads.length || stats?.total || 0;
-
-  const kpis = [
-    { label: "Total Unread", value: totalUnread, color: "#4F46E5", data: [4, 6, 5, 8, 7, 10, 12, 11, 14, Math.max(totalUnread, 1)] },
-    { label: "High Priority", value: highCount, color: "#fb7185", data: [2, 2, 1, 2, 1, 1, 0, 1, 0, Math.max(highCount, 0)] },
-    { label: "AI Replies Ready", value: repliesReady, color: "#10B981", data: [0, 0, 1, 1, 1, 2, 1, 2, Math.max(repliesReady, 1), Math.max(repliesReady, 1)] },
-    { label: "Total Emails", value: totalEmails, color: "#14b8a6", data: [8, 10, 12, 14, 16, 18, 20, 24, 28, Math.max(totalEmails, 1)] },
-  ];
-
-  const onSelect = (id: string) => { setSelectedId(id); };
-  const onReply = (id: string) => { onSelect(id); setAssistantOpen(true); };
-  const markSpam = async (id: string) => {
-    try { await patch(`/emails/threads/${id}`, { category: "spam" }); } catch {}
-    setSpammed((s) => new Set([...s, id]));
-    setToast("Moved to Spam");
-    refreshData();
-  };
-  const setPriority = async (id: string, p: Priority) => {
-    setPriorityMenu(null);
-    setPriorityOverrides((m) => ({ ...m, [id]: p }));
-    try { await patch(`/emails/threads/${id}`, { priority_score: scoreForPriority(p) }); } catch {}
-    setToast(`Priority set to ${p}`);
-    refreshData();
-  };
-  const doSync = async () => {
-    if (!activeId || syncing) return;
-    setSyncing(true);
-    try { await syncInbox(); setToast("Inbox synced"); refreshData(); } catch { setToast("Sync failed"); }
-    finally { setSyncing(false); }
-  };
-  const sendReply = () => { setToast("Reply sent"); setAssistantOpen(false); };
-  const onTone = (t: Tone) => { setTone(t); setDraftEditedFor(null); };
-  const onDraftChange = (v: string) => { setDraftText(v); setDraftEditedFor(selected?.id ?? null); };
-
-  if (!activeId) return <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-10 text-center text-slate-600">Connect Gmail to start using Smart Inbox.</div>;
-
-  const desktopFilters: Filter[] = ["All Mail", "Unread", "LinkedIn", "High Priority"];
-  const mobileFilters: MobileFilter[] = ["All", "Categories", "Action Items", "Friendly"];
-  const loading = !loaded && threads.length === 0;
-
-  const content = () => {
-    if (activeTab !== "Inbox" && activeTab !== "Action Items" && activeTab !== "Alerts") {
-      if (activeTab === "Daily Digest") return <Placeholder title="Daily Digest" text="Your AI-generated daily summary will appear here." />;
-      return <Placeholder title="Settings" text="Manage your Smart Inbox preferences here." />;
-    }
-    if (activeTab === "Alerts" && filtered.length === 0) return <Placeholder title="Alerts" text="No alerts right now. High-priority and unread alerts will appear here." />;
-    if (activeTab === "Action Items" && filtered.length === 0) return <Placeholder title="Action Items" text="No action items right now. Emails needing replies will appear here." />;
-
-    const list = activeTab === "Inbox" ? filtered : filtered;
-
-    return (
-      <>
-        <div className="hidden lg:flex flex-wrap items-center gap-2">
-          {TABS.map((t) => (
-            <button key={t} onClick={() => setActiveTab(t)} className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${activeTab === t ? "bg-indigo-600 text-white shadow-sm" : "border border-slate-200/80 bg-white/80 text-slate-600 hover:border-indigo-200 hover:text-slate-900"}`}>
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <div className="hidden lg:grid grid-cols-2 gap-4">
-          {kpis.map((k) => (
-            <div key={k.label} className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
-              <div className="mb-2 text-xs font-medium text-slate-500">{k.label}</div>
-              <Sparkline color={k.color} data={k.data} />
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{k.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="lg:hidden -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 no-scrollbar">
-          {kpis.map((k) => (
-            <div key={k.label} className="min-w-[160px] rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm">
-              <div className="text-[11px] font-medium text-slate-500">{k.label}</div>
-              <div className="mt-1 h-8"><svg viewBox="0 0 100 30" className="h-8 w-full" preserveAspectRatio="none"><polyline points={sparkPoints(k.data)} fill="none" stroke={k.color} strokeWidth="3" strokeLinecap="round" /></svg></div>
-              <div className="text-xl font-semibold text-slate-900">{k.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="hidden lg:flex flex-wrap items-center gap-2">
-          {desktopFilters.map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${filter === f ? "bg-indigo-600 text-white shadow-sm" : "border border-slate-200/80 bg-white/80 text-slate-600 hover:border-indigo-200 hover:text-slate-900"}`}>
-              {f}
-            </button>
-          ))}
-        </div>
-
-        <div className="lg:hidden -mx-1 flex gap-2 overflow-x-auto px-1 no-scrollbar">
-          {mobileFilters.map((f) => (
-            <button key={f} onClick={() => setMobileFilter(f)} className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium ${mobileFilter === f ? "bg-indigo-600 text-white" : "border border-slate-200/80 bg-white/80 text-slate-600"}`}>
-              {f}
-            </button>
-          ))}
-        </div>
-
-        {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-        {loading && <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-8 text-center text-sm text-slate-500">Loading inbox…</div>}
-
-        <div className="hidden lg:block space-y-3">
-          {!loading && list.length === 0 && <EmptyState />}
-          {list.map((t) => {
-            const p = effectivePriority(t);
-            const sel = selected?.id === t.id;
-            return (
-              <div key={t.id} onClick={() => onSelect(t.id)} className={`cursor-pointer rounded-2xl border bg-white/90 p-4 shadow-sm transition ${sel ? "border-indigo-300 ring-1 ring-indigo-200" : "border-slate-200/80 hover:border-slate-300"}`}>
-                <div className="flex items-start gap-3">
-                  <input type="checkbox" className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600" onClick={(e) => e.stopPropagation()} readOnly />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="truncate text-sm font-semibold text-slate-900">{senderDisplay(t.last_from).label}</div>
-                      <div className="shrink-0 text-xs text-slate-500">{timeLabel(t.last_activity_at)}</div>
-                    </div>
-                    <div className="mt-1 text-sm text-slate-600 line-clamp-1">{t.summary || t.subject || "(no summary)"}</div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); onReply(t.id); }} className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">Reply</button>
-                        <button onClick={(e) => { e.stopPropagation(); void markSpam(t.id); }} className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Mark as Spam</button>
-                      </div>
-                      <div className="relative">
-                        <button onClick={(e) => { e.stopPropagation(); setPriorityMenu((v) => v === t.id ? null : t.id); }} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600">Set Priority <ChevronDown size={14} /></button>
-                        {priorityMenu === t.id && (
-                          <div className="priority-menu" onClick={(e) => e.stopPropagation()}>
-                            {(["High", "Medium", "Low"] as Priority[]).map((opt) => (
-                              <button key={opt} onClick={() => void setPriority(t.id, opt)} className={opt === p ? "font-semibold text-indigo-700" : ""}>{opt}</button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="lg:hidden space-y-3 pb-24">
-          {!loading && list.length === 0 && <EmptyState />}
-          {list.map((t) => (
-            <div key={t.id} onClick={() => onSelect(t.id)} className={`rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm ${selected?.id === t.id ? "ring-1 ring-indigo-200" : ""}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-sm font-semibold text-slate-900">{senderDisplay(t.last_from).label}</div>
-                <div className="text-xs text-slate-500">{timeLabel(t.last_activity_at)}</div>
-              </div>
-              <div className="mt-1 text-sm leading-5 text-slate-600 line-clamp-3">{t.summary || t.subject || "(no summary)"}</div>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <button onClick={(e) => { e.stopPropagation(); onReply(t.id); }} className="rounded-lg bg-indigo-600 px-2 py-2 text-xs font-medium text-white">Reply</button>
-                <button onClick={(e) => { e.stopPropagation(); void markSpam(t.id); }} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700">Mark as Spam</button>
-                <div className="relative">
-                  <button onClick={(e) => { e.stopPropagation(); setPriorityMenu((v) => v === t.id ? null : t.id); }} className="w-full rounded-lg bg-emerald-500 px-2 py-2 text-xs font-medium text-white">Set Priority</button>
-                  {priorityMenu === t.id && (
-                    <div className="priority-menu right-0" onClick={(e) => e.stopPropagation()}>
-                      {(["High", "Medium", "Low"] as Priority[]).map((opt) => (
-                        <button key={opt} onClick={() => void setPriority(t.id, opt)}>{opt}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="lg:hidden fixed bottom-[76px] left-1/2 z-40 -translate-x-1/2">
-          <button onClick={() => setAssistantOpen(true)} className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-indigo-600/20">
-            <Sparkles size={16} /> AI Assistant
-          </button>
-        </div>
-
-        {assistantOpen && (
-          <div className="lg:hidden">
-            <div className="sheet-backdrop" onClick={() => setAssistantOpen(false)} />
-            <div className="sheet">
-              <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300" />
-              <AssistantPanel mobile selected={selected} tone={tone} onTone={onTone} shownDraft={shownDraft} onDraftChange={onDraftChange} onSend={sendReply} onClose={() => setAssistantOpen(false)} />
-            </div>
-          </div>
-        )}
-      </>
-    );
-  };
+  const list = queue === "home" ? (homeGroups ? [...homeGroups.urgent, ...homeGroups.hot, ...homeGroups.needReply].filter((v,i,a)=>a.findIndex(x=>x.id===v.id)===i) : []) : filtered;
 
   return (
-    <div className="relative">
-      <div className="flex w-full items-start gap-6">
-        <section className="min-w-0 flex-1 space-y-4">
-          <div className="hidden lg:flex items-center justify-between">
-            <div className="text-sm text-slate-500">Smart Inbox overview</div>
-            <button onClick={() => void doSync()} disabled={syncing} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-              {syncing ? <span className="spin" /> : <SlidersHorizontal size={14} />} {syncing ? "Syncing…" : "Sync Gmail"}
-            </button>
-          </div>
-          {content()}
-        </section>
+    <div className="stack">
+      {error && <div className="error-banner">{error}</div>}
+      {notice && <div className="notice-banner">{notice}</div>}
 
-        <aside className="hidden lg:block w-[340px] shrink-0 sticky top-[84px]">
-          <div className="rounded-2xl border border-slate-200/80 bg-[#F8FAFC] p-4 shadow-sm">
-            <AssistantPanel selected={selected} tone={tone} onTone={onTone} shownDraft={shownDraft} onDraftChange={onDraftChange} onSend={sendReply} onClose={() => {}} />
+      <div className="workspace">
+        <aside className="queue-rail">
+          <div className="card card-pad">
+            <div className="label">Queues</div>
+            <div className="queue-list">
+              {QUEUES.map((q) => (
+                <button key={q.id} className={`queue-btn ${queue === q.id ? "active" : ""}`} onClick={() => setQueue(q.id)}>
+                  <span>{q.label}</span><span className="queue-count">{counts[q.id]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="card card-pad stack" style={{ gap: 8 }}>
+            <div className="label">Quick actions</div>
+            <button className="btn sm" onClick={() => void onProcess()} disabled={busy}><Sparkles size={14} /> Run AI on inbox</button>
+            <Link href="/digest" className="btn sm ghost">View daily digest</Link>
+            <Link href="/actions" className="btn sm ghost">Open action items</Link>
           </div>
         </aside>
+
+        <section className="list-pane">
+          <div className="kpi-strip">
+            <div className="kpi"><div className="kpi-label">Unread</div><div className="kpi-value">{stats?.unread ?? threads.reduce((a,t)=>a+(t.unread||0),0)}</div><div className="kpi-meta">Needs your attention</div></div>
+            <div className="kpi"><div className="kpi-label">Needs reply</div><div className="kpi-value">{counts.needs_reply}</div><div className="kpi-meta">Draft or respond</div></div>
+            <div className="kpi"><div className="kpi-label">Hot leads</div><div className="kpi-value">{counts.hot_leads}</div><div className="kpi-meta">High-intent threads</div></div>
+            <div className="kpi"><div className="kpi-label">Urgent</div><div className="kpi-value">{counts.urgent}</div><div className="kpi-meta">Deadlines & risks</div></div>
+          </div>
+
+          <div className="pill-row" style={{ marginTop: 2 }}>
+            {QUEUES.map((q) => (
+              <button key={q.id} className={`pill ${queue === q.id ? "active" : ""}`} onClick={() => setQueue(q.id)}>
+                {q.label} · {counts[q.id]}
+              </button>
+            ))}
+          </div>
+
+          <div className="toolbar">
+            <div className="search"><Search size={15} color="var(--muted)" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sender, subject, summary…" /></div>
+            <button className="btn sm" onClick={() => void onProcess()} disabled={busy}><Sparkles size={14} /> Process</button>
+          </div>
+
+          {queue === "home" && homeGroups && (
+            <div className="grid-3">
+              <div className="card card-pad"><div className="row" style={{ justifyContent: "space-between" }}><div className="label" style={{ margin: 0 }}>Hot leads</div><Zap size={14} color="var(--hot)" /></div><div className="kpi-value">{homeGroups.hot.length}</div><button className="btn sm ghost" onClick={() => setQueue("hot_leads")}>Review <ChevronRight size={14} /></button></div>
+              <div className="card card-pad"><div className="row" style={{ justifyContent: "space-between" }}><div className="label" style={{ margin: 0 }}>Needs reply now</div><Clock size={14} color="var(--warn)" /></div><div className="kpi-value">{homeGroups.urgent.length + homeGroups.needReply.length}</div><button className="btn sm ghost" onClick={() => setQueue("needs_reply")}>Open queue <ChevronRight size={14} /></button></div>
+              <div className="card card-pad"><div className="row" style={{ justifyContent: "space-between" }}><div className="label" style={{ margin: 0 }}>Daily brief</div><Sparkles size={14} color="var(--primary)" /></div><div className="sub">Hot leads, deadlines & follow-ups in one page.</div><Link href="/digest" className="btn sm ghost">View digest <ChevronRight size={14} /></Link></div>
+            </div>
+          )}
+
+          <div className="thread-list">
+            {!loaded && <div className="card card-pad sub">Loading inbox…</div>}
+            {loaded && list.length === 0 && (
+              <div className="empty"><h2>No conversations in this view</h2><p>Try a different queue, sync your inbox, or run AI processing.</p></div>
+            )}
+            {list.map((t) => (
+              <article key={t.id} className={`thread-row ${selected?.id === t.id ? "selected" : ""} ${t.unread ? "unread" : ""}`} onClick={() => setSelectedId(t.id)}>
+                <span className={`dot ${t.unread ? "" : "muted-dot"}`} aria-hidden />
+                <div className="thread-main">
+                  <div className="thread-top">
+                    <span className="thread-from">{sender(t.last_from)}</span>
+                    <span className="thread-time">{formatTime(t.last_activity_at)}</span>
+                  </div>
+                  <div className="thread-subject">{t.subject || "(no subject)"}</div>
+                  <div className="thread-summary">{t.summary || "AI summary pending — run processing to analyze this thread."}</div>
+                  <div className="thread-meta">
+                    <ScorePill score={t.priority_score} />
+                    <CategoryChip category={t.category} />
+                    <ReplyStatusChip status={t.reply_status} />
+                    {(t.flags || []).slice(0, 2).map((f) => <FlagChip key={f} flag={f} />)}
+                  </div>
+                  <div className="thread-actions" onClick={(e) => e.stopPropagation()}>
+                    <Link href={`/thread/${t.id}`} className="btn sm primary">Open</Link>
+                    <button className="btn sm" onClick={() => void patch(`/emails/threads/${t.id}`, { is_read: true }).then(load)}>Mark read</button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <aside className="detail-pane desktop-only">
+          <DetailPane thread={selected} onRefresh={load} />
+        </aside>
       </div>
-      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

@@ -5,6 +5,14 @@ export function scoreClass(score: number | null): string {
   return "ok";
 }
 
+export function priorityLabel(score: number | null): string {
+  if (score == null) return "Unscored";
+  if (score >= 85) return "Urgent";
+  if (score >= 60) return "High";
+  if (score >= 40) return "Normal";
+  return "Low";
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   lead: "Lead",
   client: "Customer",
@@ -17,13 +25,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function CategoryChip({ category }: { category: string | null }) {
-  if (!category) return <span className="chip plain">unknown</span>;
+  if (!category) return <span className="chip plain">Unknown</span>;
   const label = CATEGORY_LABELS[category] ?? category;
   if (category === "lead" || category === "client")
     return <span className="chip hot">{label}</span>;
   if (category === "legal" || category === "financial")
-    return <span className="chip warm">{label}</span>;
-  if (category === "spam") return <span className="chip plain">{label}</span>;
+    return <span className="chip warn">{label}</span>;
+  if (category === "spam" || category === "newsletter")
+    return <span className="chip plain">{label}</span>;
   return <span className="chip neutral">{label}</span>;
 }
 
@@ -31,15 +40,15 @@ export function ReplyStatusChip({ status }: { status?: string }) {
   if (!status || status === "none") return null;
   if (status === "replied") return <span className="chip ok">Replied</span>;
   if (status === "draft_ready")
-    return <span className="chip primary">Reply ready</span>;
+    return <span className="chip primary">Draft ready</span>;
   if (status === "needs_reply")
-    return <span className="chip warm">Needs reply</span>;
+    return <span className="chip warn">Needs reply</span>;
   return null;
 }
 
 export function FlagChip({ flag }: { flag: string }) {
   const clean = flag.replace(/_/g, " ");
-  const cls = /hot|deadline|complaint|urgent/.test(flag) ? "hot" : "warm";
+  const cls = /hot|deadline|complaint|urgent/.test(flag) ? "hot" : "warn";
   return <span className={`chip ${cls}`}>{clean}</span>;
 }
 
@@ -68,14 +77,35 @@ export function MoodChip({
   );
 }
 
+export function ScorePill({ score }: { score: number | null }) {
+  const cls = scoreClass(score);
+  return (
+    <span className={`score-pill ${cls}`} title="AI priority score">
+      {priorityLabel(score)}{score != null ? ` · ${score}` : ""}
+    </span>
+  );
+}
+
 export function formatTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const diff = now.getTime() - d.getTime();
+  if (diff < 6 * 24 * 60 * 60 * 1000) return d.toLocaleDateString(undefined, { weekday: "short" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function formatDateTime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
   });
 }
@@ -96,7 +126,7 @@ export function cleanEmailBody(text: string | null | undefined): string {
     .replace(/https?:\/\/\S+/gi, " ")
     .split("\n")
     .map((line) => line.replace(/[ \t\f\v]+/g, " ").trim())
-    .filter((line) => line && !/^[\s,.;:!?|•·*#\-_=]+$/.test(line))
+    .filter((line) => line && !/^[\s,.;:!?|*#\-_=]+$/.test(line))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
