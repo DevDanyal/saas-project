@@ -107,11 +107,18 @@ export default function TeamsPage() {
       <div className="page-head">
         <div>
           <h1>Teams</h1>
-          <div className="sub">Manage shared inboxes and team members.</div>
+          <div className="sub">Share one inbox with your team and manage members.</div>
         </div>
-        <button className="btn primary" onClick={() => setCreating(true)}>
-          + Create Team
-        </button>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="label">How teams work</div>
+        <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--muted)", lineHeight: 1.6 }}>
+          <li><strong>Create a team</strong> (Team plan) to give your office a shared workspace.</li>
+          <li><strong>Invite members</strong> by email as <em>Admin</em> (can manage team/members) or <em>Agent</em> (works in the shared inbox).</li>
+          <li><strong>Shared inbox</strong> means teammates can see and work on the same team conversations, action items, digest, and reports instead of separate silos.</li>
+          <li><strong>Everyone does their own work</strong> inside the team: members handle replies/tasks while activity stays visible to the team.</li>
+        </ul>
       </div>
 
       {error && <div className="error-banner">{error}</div>}

@@ -484,6 +484,23 @@ async def reject_draft(
     return _draft_dict(draft)
 
 
+@router.delete("/drafts/{draft_id}")
+@limiter.limit("60/minute")
+async def delete_draft(
+    request: Request,
+    draft_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Remove a draft so the user can generate a fresh one later."""
+    draft = await _owned_draft(db, draft_id, user.id)
+    if draft.status == models.DraftStatus.sent:
+        raise HTTPException(status_code=409, detail="Draft already sent")
+    await db.delete(draft)
+    await db.commit()
+    return {"deleted": True, "draft_id": str(draft_id)}
+
+
 @router.get("/inbox/{user_id}")
 @limiter.limit("60/minute")
 async def inbox(

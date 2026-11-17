@@ -248,8 +248,8 @@ async def send_draft_reply(
     draft = await db.get(models.AiDraft, draft_id)
     if draft is None:
         raise ValueError("Draft not found")
-    if draft.status == models.DraftStatus.sent:
-        raise ValueError("Draft has already been sent")
+    if draft.status in (models.DraftStatus.sent, models.DraftStatus.rejected):
+        raise ValueError("Draft can no longer be sent")
 
     email = await db.get(models.Email, draft.email_id)
     if email is None:

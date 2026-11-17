@@ -184,7 +184,7 @@ export default function BillingPage() {
               className={`btn ${p.name.toLowerCase() === currentPlan ? "secondary" : "primary"}`}
               onClick={() => startCheckout(p.price_id)}
               disabled={checkoutLoading === p.price_id || p.name.toLowerCase() === currentPlan}
-              style={{ width: "100%", marginTop: 12 }}
+              style={{ width: "100%", marginTop: "auto" }}
             >
               {checkoutLoading === p.price_id
                 ? "Redirecting..."
@@ -204,6 +204,7 @@ export default function BillingPage() {
           grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
           gap: 16px;
           margin-top: 12px;
+          align-items: stretch;
         }
         .price-card {
           border: 1px solid var(--border);
@@ -212,6 +213,9 @@ export default function BillingPage() {
           background: var(--card);
           box-shadow: 0 1px 2px rgba(38, 43, 32, 0.04);
           transition: border-color 0.16s ease, box-shadow 0.16s ease;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
         }
         .price-card:hover {
           border-color: var(--border-strong);
@@ -225,12 +229,15 @@ export default function BillingPage() {
           font-family: var(--font-display), Georgia, serif;
           font-weight: 600;
           font-size: 17px;
+          line-height: 1.3;
+          min-height: 22px;
         }
         .price-amount {
           font-family: var(--font-mono), Consolas, monospace;
           font-size: 32px;
           font-weight: 600;
           margin: 8px 0;
+          line-height: 1.1;
         }
         .price-period {
           font-size: 15px;
@@ -241,6 +248,7 @@ export default function BillingPage() {
           list-style: none;
           padding: 0;
           margin: 16px 0 0;
+          flex: 1;
         }
         .price-features li {
           padding: 6px 0;
