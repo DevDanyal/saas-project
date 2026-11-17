@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.security import ensure_self, require_user
 from app.db import crud, models
 from app.db.session import get_session
-from app.services import billing, digest_service, gmail_sync
+from app.services import billing, deal_intel, digest_service, gmail_sync
 from app.services.email_text import clean_email_body
 
 limiter = Limiter(key_func=get_remote_address)
@@ -693,6 +693,30 @@ async def daily_digest(
     )
     await db.commit()
     return payload
+
+
+@router.get("/threads/{thread_id}/insights")
+@limiter.limit("30/minute")
+async def thread_insights(
+    request: Request,
+    thread_id: uuid.UUID,
+    user: models.User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Advanced deal intelligence: risk radar, war-room, x-ray, operator plan, evidence."""
+    thread = await crud.get_thread_detail(db, thread_id)
+    if thread is None or thread.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    emails = await crud.list_emails_for_thread(db, thread_id)
+    drafts_res = await db.execute(
+        select(models.AiDraft).where(models.AiDraft.email_id.in_([e.id for e in emails] or [None]))
+    )
+    drafts = list(drafts_res.scalars().all())
+    actions_res = await db.execute(
+        select(models.ActionItem).where(models.ActionItem.email_id.in_([e.id for e in emails] or [None]))
+    )
+    actions = list(actions_res.scalars().all())
+    return deal_intel.analyze_thread(thread, emails, actions, drafts)
 
 
 def _action_dict(a: models.ActionItem) -> dict:

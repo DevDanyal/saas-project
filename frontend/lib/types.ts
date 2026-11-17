@@ -210,4 +210,35 @@ export type TeamReport = {
     low: number;
   };
   notifications: Record<string, number>;
+};export type DealInsights = {
+  risk_radar: {
+    score: number;
+    level: string;
+    reasons: string[];
+    silence_days: number | null;
+    next_best_actions: { action: string; why: string; priority: string }[];
+  };
+  war_room: {
+    parties: { address: string; role: string }[];
+    intents: string[];
+    leverage: string;
+    suggested_moves: { move: string; predicted_effect: string }[];
+  };
+  xray: {
+    documents_detected: string[];
+    amounts: string[];
+    dates_mentioned: string[];
+    promises_or_commitments: string[];
+    red_flags: string[];
+    note: string;
+  };
+  operator: {
+    autonomous: boolean;
+    plan: { step: string; mode: string; status: string; guardrail: string }[];
+    note: string;
+  };
+  provable: {
+    evidence: { claim: string; value: unknown; source: string; quote: string[] }[];
+    audit_trail: { event: string; status?: string; tone?: string; sent_at?: string | null; decision?: unknown; engine?: string }[];
+  };
 };

@@ -6,8 +6,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CategoryChip, FlagChip, HintChip, ReplyStatusChip, formatDate, formatTime, MoodChip, scoreClass } from "@/lib/format";
 import { get, patch, post } from "@/lib/api";
-import type { Draft, ThreadDetail } from "@/lib/types";
+import type { DealInsights, Draft, ThreadDetail } from "@/lib/types";
 import { DraftBox } from "@/components/draft-box";
+
+function levelChip(level: string) {
+  if (level === "critical" || level === "high") return "hot";
+  if (level === "medium") return "warm";
+  return "ok";
+}
 
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +23,9 @@ export default function ThreadPage() {
   const [busyRead, setBusyRead] = useState(false);
   const [genBusy, setGenBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [insights, setInsights] = useState<DealInsights | null>(null);
+  const [insBusy, setInsBusy] = useState(false);
+  const [insError, setInsError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     get<ThreadDetail>(`/emails/threads/${id}`)
@@ -81,6 +90,20 @@ export default function ThreadPage() {
     }
   }
 
+  async function loadInsights() {
+    if (!thread) return;
+    setInsBusy(true);
+    setInsError(null);
+    try {
+      const data = await get<DealInsights>(`/emails/threads/${thread.id}/insights`);
+      setInsights(data);
+    } catch (e) {
+      setInsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInsBusy(false);
+    }
+  }
+
   if (error) return <div className="error-banner">{error}</div>;
   if (!thread) return <div className="empty">Loading thread...</div>;
 
@@ -119,6 +142,87 @@ export default function ThreadPage() {
           {thread.pipeline_hints.map((h) => <HintChip key={h} hint={h} />)}
         </div>
       )}
+
+      <div className="card" style={{ marginTop: 12, marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div className="label">Deal Intelligence (Advanced)</div>
+            <div className="sub">Risk radar, war-room, X-ray scan, autonomous plan & provable evidence.</div>
+          </div>
+          <button className="btn primary" onClick={() => void loadInsights()} disabled={insBusy}>
+            {insBusy ? "Analyzing..." : insights ? "Refresh intelligence" : "Run Deal Intelligence"}
+          </button>
+        </div>
+        {insError && <div className="error-banner" style={{ marginTop: 10 }}>{insError}</div>}
+        {insights && (
+          <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+            <div className="panel">
+              <div className="label">Pre-Crime Deal Radar</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                <span className={`chip ${levelChip(insights.risk_radar.level)}`}>Risk {insights.risk_radar.score}/100 · {insights.risk_radar.level}</span>
+                {insights.risk_radar.silence_days != null && <span className="chip neutral">Silence: {insights.risk_radar.silence_days}d</span>}
+              </div>
+              <ul style={{ margin: "6px 0", paddingLeft: 18 }}>{insights.risk_radar.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+              <div className="sub" style={{ marginTop: 6 }}><strong>Next-best actions:</strong></div>
+              {insights.risk_radar.next_best_actions.map((a, i) => (
+                <div key={i} className="action-item" style={{ marginTop: 6 }}>
+                  <span className={`chip ${a.priority === "high" ? "hot" : "warm"}`}>{a.priority}</span>
+                  <span className="desc"><strong>{a.action}</strong> <span className="sub">— {a.why}</span></span>
+                </div>
+              ))}
+            </div>
+
+            <div className="panel">
+              <div className="label">Negotiation War-Room</div>
+              <div className="sub">Leverage: <strong>{insights.war_room.leverage}</strong> · Intents: {insights.war_room.intents.join(", ")}</div>
+              <div style={{ marginTop: 6 }}><strong>Parties:</strong> {insights.war_room.parties.map(p => `${p.address} (${p.role})`).join(" · ") || "—"}</div>
+              <div className="sub" style={{ marginTop: 8 }}><strong>Suggested moves (predicted impact):</strong></div>
+              <ul style={{ margin: "6px 0", paddingLeft: 18 }}>
+                {insights.war_room.suggested_moves.map((m, i) => <li key={i}><strong>{m.move}</strong> — {m.predicted_effect}</li>)}
+              </ul>
+            </div>
+
+            <div className="panel">
+              <div className="label">X-Ray Deal Scanner</div>
+              <div className="sub">{insights.xray.note}</div>
+              <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
+                <div><strong>Docs/signals:</strong> {insights.xray.documents_detected.join(", ") || "none detected"}</div>
+                <div><strong>Amounts:</strong> {insights.xray.amounts.join(", ") || "—"} · <strong>Dates:</strong> {insights.xray.dates_mentioned.join(", ") || "—"}</div>
+                {insights.xray.promises_or_commitments.length > 0 && <div><strong>Commitments:</strong> {insights.xray.promises_or_commitments.join(" / ")}</div>}
+                {insights.xray.red_flags.length > 0 && <div><strong>Red flags:</strong> {insights.xray.red_flags.join(" · ")}</div>}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="label">Autonomous Deal Operator {insights.operator.autonomous ? "(on)" : "(approval-gated)"}</div>
+              <div className="sub">{insights.operator.note}</div>
+              {insights.operator.plan.map((p, i) => (
+                <div key={i} className="action-item" style={{ marginTop: 6 }}>
+                  <span className={`chip ${p.status === "armed" ? "ok" : "primary"}`}>{p.status}</span>
+                  <span className="desc"><strong>{p.step}</strong> <span className="sub">— {p.mode}. {p.guardrail}</span></span>
+                </div>
+              ))}
+            </div>
+
+            <div className="panel">
+              <div className="label">Provable Autopilot (Evidence & Audit)</div>
+              <div className="sub"><strong>Evidence (explainable):</strong></div>
+              {insights.provable.evidence.length === 0 ? <div className="sub">No evidence yet.</div> : insights.provable.evidence.map((e, i) => (
+                <div key={i} style={{ marginTop: 6, fontSize: 13 }}>
+                  <strong>{e.claim}:</strong> {typeof e.value === "string" ? e.value : JSON.stringify(e.value)} <span className="sub">(source: {e.source})</span>
+                  {e.quote?.[0] && <div className="sub" style={{ marginTop: 2 }}>“{e.quote[0]}”</div>}
+                </div>
+              ))}
+              <div className="sub" style={{ marginTop: 8 }}><strong>Audit trail:</strong></div>
+              <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                {insights.provable.audit_trail.map((a, i) => (
+                  <li key={i}>{a.event} — {a.status || ""} {a.engine ? `(${a.engine})` : ""} {a.sent_at ? `@ ${formatTime(a.sent_at)}` : ""}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
 
       {[...thread.emails]
         .sort((a, b) => new Date(a.received_at ?? 0).getTime() - new Date(b.received_at ?? 0).getTime())
