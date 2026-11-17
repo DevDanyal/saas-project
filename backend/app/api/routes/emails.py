@@ -118,7 +118,9 @@ async def _thread_meta_map(db: AsyncSession, threads: list[models.Thread]) -> di
             .order_by(models.AiDraft.created_at.asc())
         )
         for d in draft_res.scalars().all():
-            latest_draft[d.email_id] = d
+            existing = latest_draft.get(d.email_id)
+            if existing is None or existing.status != models.DraftStatus.sent:
+                latest_draft[d.email_id] = d
 
     for e in emails:
         m = meta.get(e.thread_id)
@@ -607,9 +609,15 @@ async def thread_detail(
     emails = await crud.list_emails_for_thread(db, thread_id)
 
     drafts_res = await db.execute(
-        select(models.AiDraft).where(models.AiDraft.email_id.in_([e.id for e in emails]))
+        select(models.AiDraft)
+        .where(models.AiDraft.email_id.in_([e.id for e in emails]))
+        .order_by(models.AiDraft.created_at.asc())
     )
-    drafts = {d.email_id: d for d in drafts_res.scalars().all()}
+    drafts: dict = {}
+    for d in drafts_res.scalars().all():
+        existing = drafts.get(d.email_id)
+        if existing is None or existing.status != models.DraftStatus.sent:
+            drafts[d.email_id] = d
     actions_res = await db.execute(
         select(models.ActionItem).where(models.ActionItem.email_id.in_([e.id for e in emails]))
     )
